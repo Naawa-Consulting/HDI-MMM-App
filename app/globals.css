@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-barlow), system-ui, sans-serif;
+
+  /* ── HDI Brand ── */
+  --color-hdi-green:    #006729;
+  --color-hdi-red:      #E60018;
+
+  /* Green Universal */
+  --color-hdi-gu-100:   #65A518;
+  --color-hdi-gu-70:    #93C05D;
+  --color-hdi-gu-50:    #B2D28C;
+  --color-hdi-gu-30:    #D1E4BA;
+
+  /* Teal */
+  --color-hdi-teal-100: #00A3A8;
+  --color-hdi-teal-70:  #4CBFC2;
+  --color-hdi-teal-50:  #80D1D4;
+  --color-hdi-teal-30:  #B3E4E5;
+
+  /* Dark Blue */
+  --color-hdi-blue-100: #003960;
+  --color-hdi-blue-70:  #4C7490;
+  --color-hdi-blue-50:  #809CB0;
+  --color-hdi-blue-30:  #B3C3D0;
+}
+
+body {
+  background: #ffffff;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

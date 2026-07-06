@@ -1,0 +1,33 @@
+import { getLatestRun } from "@/lib/queries/models";
+import { getAttributionBlocks, getRoiByYear } from "@/lib/queries/channels";
+import { getMonthlyScenarios } from "@/lib/queries/timeseries";
+import { AttributionShell } from "./AttributionShell";
+
+export const revalidate = 300;
+
+export default async function NacionalAttributionPage() {
+  const run = await getLatestRun("nacional");
+  if (!run) {
+    return (
+      <div className="p-4 md:p-6">
+        <p className="text-gray-500">Sin datos publicados para el modelo Nacional.</p>
+      </div>
+    );
+  }
+
+  const [blocks, monthly, roi] = await Promise.all([
+    getAttributionBlocks(run.id),
+    getMonthlyScenarios(run.id),
+    getRoiByYear(run.id),
+  ]);
+
+  return (
+    <AttributionShell
+      run={run}
+      blocks={blocks}
+      roi={roi}
+      monthly={monthly}
+      scope="nacional"
+    />
+  );
+}
