@@ -26,16 +26,20 @@ function buildChartData(scenarios: MonthlyScenario[], years: number[]) {
     .filter((s) => years.includes(s.year) && s.obs != null)
     .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
     .map((s) => {
-      const total = (s.base ?? 0) + (s.mkt_act ?? 0);
+      // Baseline agrupa todo lo que no es marketing (base + agentes + estacionalidad)
+      // para que sume exactamente "obs" junto con Marketing -- mismo criterio que
+      // el reescalado de monthly_scenarios (2026-08-24).
+      const baseline = (s.base ?? 0) + (s.agentes ?? 0) + (s.estac ?? 0);
+      const denom = s.obs ?? (baseline + (s.mkt_act ?? 0));
       const mktPct =
-        total > 0 && s.mkt_act != null
-          ? Math.round((s.mkt_act / total) * 100)
+        denom > 0 && s.mkt_act != null
+          ? Math.round((s.mkt_act / denom) * 100)
           : null;
       return {
         mes: multiYear
           ? `${MONTH_LABELS[s.month - 1]} '${String(s.year).slice(2)}`
           : MONTH_LABELS[s.month - 1],
-        Baseline: s.base ?? null,
+        Baseline: baseline,
         Marketing: s.mkt_act ?? null,
         mktPct,
       };

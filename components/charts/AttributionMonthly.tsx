@@ -122,17 +122,20 @@ function buildData(monthly: MonthlyScenario[], years: number[]): DataRow[] {
     .map((m): DataRow => {
       const isForecast  = m.obs == null;
       const mktValue    = isForecast ? m.mkt_plan : m.mkt_act;
-      const rawTotal    = (m.base ?? 0) + (m.agentes ?? 0) + (mktValue ?? 0);
-      // 1 decimal: e.g. 12.3
-      const mktPct =
-        rawTotal > 0 && mktValue != null
-          ? Math.round((mktValue / rawTotal) * 1000) / 10
-          : null;
       // Baseline = base + estac combined so both real and forecast bars reflect seasonality.
       // For real months: base (structural) + estac (seasonal). For forecast: base already
       // stores avg(base+estac) and estac is null, so the sum is the same.
       const baselineValue =
         m.base != null ? m.base + (m.estac ?? 0) : null;
+
+      // rawTotal DEBE incluir estac (vía baselineValue) -- antes se omitía y el %
+      // no coincidía con el del resumen ejecutivo ni con el anual (2026-08-24).
+      const rawTotal = (baselineValue ?? 0) + (m.agentes ?? 0) + (mktValue ?? 0);
+      // 1 decimal: e.g. 12.3
+      const mktPct =
+        rawTotal > 0 && mktValue != null
+          ? Math.round((mktValue / rawTotal) * 1000) / 10
+          : null;
 
       const total =
         baselineValue != null
