@@ -103,7 +103,12 @@ async function exportExcel(
     marketing: "Marketing",
     estacionalidad: "Estacionalidad",
   };
-  const totalCot = roi.reduce((s, r) => s + (r.cot_obs ?? 0), 0);
+  const monthRowsForExport = activeMonths.length > 0
+    ? monthly.filter((m) => activeYears.includes(m.year) && activeMonths.includes(m.month))
+    : [];
+  const totalCot = monthRowsForExport.length > 0
+    ? monthlyTotalCot(monthRowsForExport)
+    : roi.reduce((s, r) => s + (r.cot_obs ?? 0), 0);
   const decompRows = [
     ["Bloque", "Contribucion (%)", "Cotizaciones (estimado)"],
     ...blocks
@@ -165,6 +170,59 @@ async function exportExcel(
 
   const monthSuffix = activeMonths.length > 0 ? `_m${activeMonths.join("-")}` : "";
   writeFile(wb, `atribucion_${scope}_${activeYears.join("-")}${monthSuffix}.xlsx`);
+}
+
+// ─── datos mensuales para Sección 1 (waterfall) y Sección 2 (evolución por año) ──
+//
+// Ambas secciones usaban SOLO datos anuales, sin reaccionar al filtro de mes
+// (reportado por el usuario 2026-09-24). Se derivan de monthly_scenarios --
+// misma fuente que ya usa la Sección 3 -- para que las 3 secciones cuadren.
+
+function monthlyBlocksFromRows(rows: MonthlyScenario[]): AttributionBlock[] {
+  const base    = rows.reduce((s, m) => s + (m.base ?? 0), 0);
+  const agentes = rows.reduce((s, m) => s + (m.agentes ?? 0), 0);
+  const estac   = rows.reduce((s, m) => s + (m.estac ?? 0), 0);
+  const mkt     = rows.reduce((s, m) => s + (m.mkt_act ?? 0), 0);
+  const denom = base + agentes + estac + mkt;
+  if (denom <= 0) return [];
+  const pct = (v: number) => (v / denom) * 100;
+  const out: { block: string; pct: number }[] = [
+    { block: "mercado_tendencia", pct: pct(base) },
+    { block: "estacionalidad",    pct: pct(estac) },
+    { block: "marketing",         pct: pct(mkt) },
+  ];
+  if (Math.abs(agentes) > 0.001) out.push({ block: "agentes", pct: pct(agentes) });
+  return out.map((b, i) => ({ id: `month-${i}`, run_id: "", ...b }));
+}
+
+function monthlyTotalCot(rows: MonthlyScenario[]): number {
+  return rows.reduce(
+    (s, m) => s + (m.obs ?? ((m.base ?? 0) + (m.agentes ?? 0) + (m.estac ?? 0) + (m.mkt_act ?? 0))),
+    0
+  );
+}
+
+// Fila sintética para reusar AttributionYearChart/RoiTable (grano año) con
+// los valores del mes seleccionado -- inv/roas quedan null (misma razón que
+// el hero: no hay inversión total confiable a nivel mes).
+function monthlyRoiRow(
+  cotObs: number,
+  kpis: { mktSum: number; attribPct: number | null },
+  yearRow: RoiByYear | undefined,
+): RoiByYear {
+  return {
+    id: yearRow?.id ?? "month",
+    run_id: yearRow?.run_id ?? "",
+    year: yearRow?.year ?? 0,
+    cot_obs: cotObs,
+    mkt_cot: kpis.mktSum,
+    attrib_pct: kpis.attribPct,
+    inv: null,
+    roas: null,
+    close_rate: yearRow?.close_rate ?? null,
+    prima_avg: yearRow?.prima_avg ?? null,
+    is_partial: yearRow?.is_partial ?? false,
+  };
 }
 
 // ─── hero KPI aggregation ────────────────────────────────────────────────────
@@ -368,11 +426,21 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
     ? `${activeMonths.map((m) => MONTH_ABBR[m - 1]).join("/")} ${activeYears[0]}`
     : "periodo seleccionado";
 
-  // Total cotizaciones for full model period (waterfall is always full-period)
+  // Total cotizaciones for full model period (waterfall is always full-period,
+  // salvo que haya un mes activo -- ver activeBlocks/activeTotalCot abajo)
   const totalCot = useMemo(
     () => roi.reduce((s, r) => s + (r.cot_obs ?? 0), 0),
     [roi]
   );
+
+  // Sección 1 (waterfall) y Sección 2 (evolución por año) -- reaccionan al
+  // mes igual que el hero, en vez de quedarse siempre en el período completo
+  // / el año sin más (reportado por el usuario 2026-09-24).
+  const activeBlocks    = monthKpis ? monthlyBlocksFromRows(monthRows) : blocks;
+  const activeTotalCot  = monthKpis ? monthlyTotalCot(monthRows) : totalCot;
+  const sectionTwoRoi   = monthKpis
+    ? [monthlyRoiRow(activeTotalCot, monthKpis, roi.find((r) => r.year === activeYears[0]))]
+    : filteredRoi;
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -421,7 +489,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
           </button>
           <button
             onClick={() =>
-              exportExcel(scope, blocks, roi, monthly, activeYears, allSelected, {
+              exportExcel(scope, activeBlocks, roi, monthly, activeYears, allSelected, {
                 attrib, cotMkt, polizas, prima, roas,
               }, activeMonths)
             }
@@ -508,11 +576,11 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             Composicion de cotizaciones
           </h3>
           <p className="text-gray-500 text-xs mt-0.5">
-            Contribucion de cada driver al total — periodo completo del modelo
+            Contribucion de cada driver al total — {monthKpis ? periodCaption : "periodo completo del modelo"}
           </p>
         </div>
 
-        <AttributionWaterfall blocks={blocks} totalCot={totalCot > 0 ? totalCot : null} />
+        <AttributionWaterfall blocks={activeBlocks} totalCot={activeTotalCot > 0 ? activeTotalCot : null} />
 
         {/* Hero KPIs — filtrables por año */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-100 border-t border-gray-100 mt-4 -mx-5">
@@ -570,13 +638,18 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-gray-900 font-semibold mb-1">Evolucion de la atribucion</h3>
         <p className="text-gray-500 text-xs mb-4">
-          % de cotizaciones atribuido a marketing — anos seleccionados
+          % de cotizaciones atribuido a marketing — {monthKpis ? periodCaption : "anos seleccionados"}
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <AttributionYearChart roi={filteredRoi} />
-          <RoiTable roi={filteredRoi} />
+          <AttributionYearChart roi={sectionTwoRoi} />
+          <RoiTable roi={sectionTwoRoi} />
         </div>
+        {monthKpis && (
+          <p className="text-[10px] text-gray-400 mt-3">
+            Inversión y ROAS no disponibles a nivel mes (ver nota en KPIs de arriba).
+          </p>
+        )}
       </div>
 
       {/* ─── SECCION 3: Evolución mensual ─── */}

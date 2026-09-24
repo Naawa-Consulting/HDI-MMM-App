@@ -67,7 +67,12 @@ export function aggregateMonthlyAttribution(
   const attribPct = denomSum > 0 ? (mktSum / denomSum) * 100 : null;
   const closeRate = roiYear?.close_rate ?? null;
   const primaAvg = roiYear?.prima_avg ?? null;
-  const polizas = closeRate != null ? mktSum * (closeRate / 100) : null;
+  // close_rate se guarda en roi_by_year como fracción (0.1477 = 14.77%), NO
+  // como 0-100 -- verificado directo en Supabase (Nacional y CDMX). Mismo
+  // criterio que ya usan aggregateHero()/RoiTable.tsx en AttributionShell.tsx:
+  // mkt_cot * close_rate, SIN dividir entre 100 (bug real: dividía de más,
+  // pólizas/prima del hero mensual salían 100x menores que la tabla de abajo).
+  const polizas = closeRate != null ? mktSum * closeRate : null;
   const prima = polizas != null && primaAvg != null ? polizas * primaAvg : null;
   return { mktSum, attribPct, polizas, prima };
 }

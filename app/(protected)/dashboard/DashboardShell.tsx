@@ -96,12 +96,16 @@ async function exportExcel(
 
   // ── Hoja 3: ROI por año ───────────────────────────────────────────────────
   const roiHeader = ["Año", "Parcial", "Cotiz Obs", "Cotiz Mkt", "Atrib (%)", "Inversion (MXN)", "ROAS", "Tasa Conversion", "Prima Promedio"];
+  // close_rate se guarda en roi_by_year como fracción (0.1477), no como 0-100
+  // -- verificado directo en Supabase (Nacional y CDMX). NO dividir entre 100
+  // (bug real encontrado 2026-09-24: mostraba "Tasa Conversion" 100x menor,
+  // p.ej. 0.15% en vez de 14.77%).
   const roiRowsNal: unknown[][] = roiNacional.map((r) => [
     r.year, r.is_partial ? "Si" : "No",
     r.cot_obs, r.mkt_cot,
     r.attrib_pct != null ? r.attrib_pct / 100 : null,
     r.inv, r.roas,
-    r.close_rate != null ? r.close_rate / 100 : null,
+    r.close_rate,
     r.prima_avg,
   ]);
   const roiRowsCdmx: unknown[][] = roiCdmx.map((r) => [
@@ -109,7 +113,7 @@ async function exportExcel(
     r.cot_obs, r.mkt_cot,
     r.attrib_pct != null ? r.attrib_pct / 100 : null,
     r.inv, r.roas,
-    r.close_rate != null ? r.close_rate / 100 : null,
+    r.close_rate,
     r.prima_avg,
   ]);
   const roiRows: unknown[][] = [
