@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -12,19 +12,18 @@ import {
   Legend,
   LabelList,
 } from "recharts";
-import type { MonthlyScenario, RoiByYear } from "@/lib/types";
-import { fmtNum, fmtPct, fmtMXN, aggregateMonthlyAttribution } from "@/lib/utils";
-import { MonthSelector } from "@/components/MonthSelector";
+import type { MonthlyScenario } from "@/lib/types";
+import { fmtNum } from "@/lib/utils";
 
 const MONTH_LABELS = [
   "Ene", "Feb", "Mar", "Abr", "May", "Jun",
   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ];
 
-function buildChartData(scenarios: MonthlyScenario[], years: number[]) {
+function buildChartData(scenarios: MonthlyScenario[], years: number[], months: number[]) {
   const multiYear = years.length > 1;
   return scenarios
-    .filter((s) => years.includes(s.year) && s.obs != null)
+    .filter((s) => years.includes(s.year) && s.obs != null && (months.length === 0 || months.includes(s.month)))
     .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
     .map((s) => {
       // Baseline agrupa todo lo que no es marketing (base + agentes + estacionalidad)
@@ -80,55 +79,24 @@ function MktLabel({
 interface DashboardChartsProps {
   monthlyNacional: MonthlyScenario[];
   monthlyCdmx: MonthlyScenario[];
-  roiNacional: RoiByYear[];
-  roiCdmx: RoiByYear[];
   selectedYears: number[];
+  selectedMonths: number[];
 }
 
 export function DashboardCharts({
   monthlyNacional,
   monthlyCdmx,
-  roiNacional,
-  roiCdmx,
   selectedYears,
+  selectedMonths,
 }: DashboardChartsProps) {
   const [scope, setScope] = useState<"nacional" | "cdmx">("cdmx");
 
-  // Filtro de mes -- solo con exactamente un año activo (no "Todos"/multi-año).
-  const monthFilterEnabled = selectedYears.length === 1;
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
-  const yearsKey = selectedYears.join(",");
-  useEffect(() => {
-    setSelectedMonths([]);
-  }, [yearsKey]);
-  const activeMonths = monthFilterEnabled ? selectedMonths : [];
-
   const monthly = scope === "nacional" ? monthlyNacional : monthlyCdmx;
-  const roi = scope === "nacional" ? roiNacional : roiCdmx;
-
-  const monthlyForYear = monthFilterEnabled
-    ? monthly.filter((m) => m.year === selectedYears[0])
-    : [];
-  const availableMonths = [...new Set(monthlyForYear.map((m) => m.month))].sort(
-    (a, b) => a - b
-  );
-
-  const filteredMonthly =
-    activeMonths.length > 0
-      ? monthly.filter((m) => activeMonths.includes(m.month))
-      : monthly;
-
-  const data = buildChartData(filteredMonthly, selectedYears);
+  const data = buildChartData(monthly, selectedYears, selectedMonths);
 
   const hasData = data.some(
     (d) => d.Baseline != null || d.Marketing != null
   );
-
-  const showMonthKpis = activeMonths.length > 0;
-  const roiYear = roi.find((r) => r.year === selectedYears[0]);
-  const monthKpis = showMonthKpis
-    ? aggregateMonthlyAttribution(monthlyForYear.filter((m) => activeMonths.includes(m.month)), roiYear)
-    : null;
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -157,41 +125,6 @@ export function DashboardCharts({
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="mb-4 space-y-3">
-        <MonthSelector
-          availableMonths={availableMonths}
-          selected={activeMonths}
-          onToggle={(m) =>
-            setSelectedMonths((prev) =>
-              prev.includes(m) ? prev.filter((p) => p !== m) : [...prev, m].sort((a, b) => a - b)
-            )
-          }
-          onSelectAll={() => setSelectedMonths([])}
-          enabled={monthFilterEnabled}
-        />
-
-        {showMonthKpis && monthKpis && (
-          <div className="grid grid-cols-3 gap-px bg-gray-100 rounded-lg overflow-hidden border border-gray-100">
-            <div className="bg-white px-3 py-2">
-              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Atribución</p>
-              <p className="text-sm font-bold text-[#65A518]">{fmtPct(monthKpis.attribPct, 1)}</p>
-            </div>
-            <div className="bg-white px-3 py-2">
-              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Pólizas atrib.</p>
-              <p className="text-sm font-bold text-gray-900">
-                {monthKpis.polizas != null ? fmtNum(monthKpis.polizas, 0) : "—"}
-              </p>
-            </div>
-            <div className="bg-white px-3 py-2">
-              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Prima generada</p>
-              <p className="text-sm font-bold text-gray-900">
-                {monthKpis.prima != null ? fmtMXN(monthKpis.prima) : "—"}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
 
       {hasData ? (

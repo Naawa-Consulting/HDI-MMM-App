@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef } from "react";
 import { ModelCard } from "./ModelCard";
 import { DashboardCharts } from "./DashboardCharts";
+import { MonthSelector } from "@/components/MonthSelector";
 import type {
   ModelRun,
   AttributionBlock,
@@ -10,6 +11,7 @@ import type {
   RoiByYear,
   HeatmapData,
   MonthlyScenario,
+  ChannelMonthly,
 } from "@/lib/types";
 
 // ─── PDF export ───────────────────────────────────────────────────────────────
@@ -162,6 +164,8 @@ interface Props {
   heatmapCdmx: HeatmapData[];
   monthlyNacional: MonthlyScenario[];
   monthlyCdmx: MonthlyScenario[];
+  channelMonthlyNacional: ChannelMonthly[];
+  channelMonthlyCdmx: ChannelMonthly[];
 }
 
 export function DashboardShell({
@@ -177,6 +181,8 @@ export function DashboardShell({
   heatmapCdmx,
   monthlyNacional,
   monthlyCdmx,
+  channelMonthlyNacional,
+  channelMonthlyCdmx,
 }: Props) {
   const contentRef = useRef<HTMLDivElement>(null);
   // Only show years where at least one model has actual attribution data.
@@ -216,8 +222,14 @@ export function DashboardShell({
     [roiNacional, roiCdmx]
   );
 
+  // Filtro de mes -- solo con exactamente 1 año activo (no "Todos"). Se
+  // resetea cada vez que cambia la selección de año (mismo criterio que
+  // AttributionShell.tsx / ChannelShell.tsx).
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+
   function toggle(y: number) {
     setChipYear(y);
+    setSelectedMonths([]);
     if (allSelected) {
       // Exit "Todos" mode: select only the clicked year
       setAllSelected(false);
@@ -233,14 +245,35 @@ export function DashboardShell({
   }
 
   function selectAll() {
+    setSelectedMonths([]);
     setAllSelected(true);
     setSelected(allYears);
     // chips show most recent year in "Todos" mode
     setChipYear(allYears[0] ?? null);
   }
 
+  function toggleMonth(m: number) {
+    setSelectedMonths((prev) =>
+      prev.includes(m) ? prev.filter((p) => p !== m) : [...prev, m].sort((a, b) => a - b)
+    );
+  }
+
+  function selectAllMonths() {
+    setSelectedMonths([]);
+  }
+
   // The years actually passed to cards: individual selection OR all years
   const activeYears = allSelected ? allYears : selected;
+  const monthFilterEnabled = !allSelected && activeYears.length === 1;
+  const activeMonths = monthFilterEnabled ? selectedMonths : [];
+
+  const availableMonths = monthFilterEnabled
+    ? [...new Set(
+        [...monthlyNacional, ...monthlyCdmx]
+          .filter((m) => m.year === activeYears[0])
+          .map((m) => m.month)
+      )].sort((a, b) => a - b)
+    : [];
 
   const hasPartialSelected = activeYears.some((y) => partialYears.has(y));
 
@@ -327,6 +360,19 @@ export function DashboardShell({
         </div>
       )}
 
+      {/* Month selector (etapa 2b) -- afecta toda la página, igual que Canales & ROI */}
+      {monthFilterEnabled && availableMonths.length > 0 && (
+        <div className="mb-6 -mt-3">
+          <MonthSelector
+            availableMonths={availableMonths}
+            selected={activeMonths}
+            onToggle={toggleMonth}
+            onSelectAll={selectAllMonths}
+            enabled={monthFilterEnabled}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
         <ModelCard
           title="Modelo Nacional"
@@ -335,8 +381,11 @@ export function DashboardShell({
           channels={channelsNacional}
           roi={roiNacional}
           heatmap={heatmapNacional}
+          monthly={monthlyNacional}
+          channelMonthly={channelMonthlyNacional}
           selectedYears={activeYears}
           chipYear={chipYear}
+          selectedMonths={activeMonths}
         />
         <ModelCard
           title="Modelo CDMX"
@@ -345,17 +394,19 @@ export function DashboardShell({
           channels={channelsCdmx}
           roi={roiCdmx}
           heatmap={heatmapCdmx}
+          monthly={monthlyCdmx}
+          channelMonthly={channelMonthlyCdmx}
           selectedYears={activeYears}
           chipYear={chipYear}
+          selectedMonths={activeMonths}
         />
       </div>
 
       <DashboardCharts
         monthlyNacional={monthlyNacional}
         monthlyCdmx={monthlyCdmx}
-        roiNacional={roiNacional}
-        roiCdmx={roiCdmx}
         selectedYears={activeYears}
+        selectedMonths={activeMonths}
       />
     </div>
   );

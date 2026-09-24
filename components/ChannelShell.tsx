@@ -6,6 +6,8 @@ import { MonthSelector } from "@/components/MonthSelector";
 import { fmtPct, fmtMXN, fmtRoas, fmtNum } from "@/lib/utils";
 import type { Channel, RoiByYear, HeatmapData, ChannelMonthly, MonthlyScenario } from "@/lib/types";
 
+const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
 // ─── PDF export ───────────────────────────────────────────────────────────────
 
 async function exportPDF(el: HTMLElement, filename: string) {
@@ -54,7 +56,6 @@ async function exportExcel(
   const { utils, writeFile } = await import("xlsx");
   const wb    = utils.book_new();
   const label  = scope === "nacional" ? "Nacional" : "CDMX";
-  const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const period = allSelected
     ? "Periodo completo"
     : activeYears.join(", ") + (activeMonths.length > 0
@@ -660,7 +661,13 @@ export function ChannelShell({ scope, channels, roi, heatmap, channelMonthly = [
           Share de inversion vs contribucion
         </h3>
         <p className="text-gray-500 text-xs mb-4">
-          Solo canales modelados — periodo completo del modelo
+          Solo canales modelados — {
+            activeMonths.length > 0
+              ? `${activeYears[0]}, ${activeMonths.map((m) => MONTH_ABBR[m - 1]).join("/")}`
+              : allSelected
+              ? "periodo completo del modelo"
+              : `años seleccionados (${activeYears.join(", ")})`
+          }
         </p>
         <ChannelBarChart channels={modeled} />
       </div>

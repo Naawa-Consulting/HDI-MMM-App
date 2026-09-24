@@ -4,6 +4,7 @@ import {
   getChannels,
   getRoiByYear,
   getHeatmapData,
+  getChannelMonthly,
 } from "@/lib/queries/channels";
 import { getMonthlyScenarios } from "@/lib/queries/timeseries";
 import { DashboardShell } from "./DashboardShell";
@@ -27,6 +28,8 @@ export default async function DashboardPage() {
     heatmapCdmx,
     monthlyNacional,
     monthlyCdmx,
+    channelMonthlyNacional,
+    channelMonthlyCdmx,
   ] = await Promise.all([
     runNacional ? getAttributionBlocks(runNacional.id) : Promise.resolve([]),
     runCdmx ? getAttributionBlocks(runCdmx.id) : Promise.resolve([]),
@@ -38,6 +41,8 @@ export default async function DashboardPage() {
     runCdmx ? getHeatmapData(runCdmx.id) : Promise.resolve([]),
     runNacional ? getMonthlyScenarios(runNacional.id) : Promise.resolve([]),
     runCdmx ? getMonthlyScenarios(runCdmx.id) : Promise.resolve([]),
+    runNacional ? getChannelMonthly(runNacional.id) : Promise.resolve([]),
+    runCdmx ? getChannelMonthly(runCdmx.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -61,6 +66,8 @@ export default async function DashboardPage() {
         heatmapCdmx={heatmapCdmx}
         monthlyNacional={monthlyNacional}
         monthlyCdmx={monthlyCdmx}
+        channelMonthlyNacional={channelMonthlyNacional}
+        channelMonthlyCdmx={channelMonthlyCdmx}
       />
     </div>
   );

@@ -4,7 +4,8 @@ import { useState, useMemo, useRef } from "react";
 import { AttributionWaterfall } from "@/components/charts/AttributionWaterfall";
 import { AttributionYearChart } from "@/components/charts/AttributionYearChart";
 import { AttributionMonthly } from "@/components/charts/AttributionMonthly";
-import { fmtPct, fmtNum, fmtMXN, fmtMXNM, fmtRoas } from "@/lib/utils";
+import { MonthSelector } from "@/components/MonthSelector";
+import { fmtPct, fmtNum, fmtMXN, fmtMXNM, fmtRoas, aggregateMonthlyAttribution } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
@@ -329,12 +330,43 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
   const activeYears = allSelected ? allYears : selected;
   const hasPartialSelected = activeYears.some((y) => partialYears.has(y));
 
+  // Filtro de mes -- afecta TODA la página (hero KPIs de la Sección 1 y el
+  // chart de la Sección 3), igual que en Canales & ROI. Solo con 1 año activo.
+  const monthFilterEnabled = !allSelected && activeYears.length === 1;
+  const activeMonths = monthFilterEnabled ? selectedMonths : [];
+  const availableMonths = monthFilterEnabled
+    ? [...new Set(monthly.filter((m) => m.year === activeYears[0]).map((m) => m.month))].sort((a, b) => a - b)
+    : [];
+
   // ── derived data for each section ────────────────────────────────────────
   const filteredRoi = allSelected
     ? roi
     : roi.filter((r) => activeYears.includes(r.year));
 
-  const { attrib, cotMkt, polizas, prima, roas } = aggregateHero(filteredRoi, run, allSelected);
+  const { attrib: annualAttrib, cotMkt: annualCotMkt, polizas: annualPolizas, prima: annualPrima, roas: annualRoas } =
+    aggregateHero(filteredRoi, run, allSelected);
+
+  // Cuando hay mes(es) especifico(s), los KPIs hero se recalculan a nivel
+  // mes (mismo criterio que Etapa 1) -- ROAS se deja en "—": no hay
+  // inversión total (modelados + no-modelados) confiable a nivel mes (ver
+  // BITACORA turno 29, misma decisión que ModelCard.tsx).
+  const monthRows = monthFilterEnabled && activeMonths.length > 0
+    ? monthly.filter((m) => m.year === activeYears[0] && activeMonths.includes(m.month))
+    : [];
+  const monthKpis = monthRows.length > 0
+    ? aggregateMonthlyAttribution(monthRows, roi.find((r) => r.year === activeYears[0]))
+    : null;
+
+  const attrib  = monthKpis ? monthKpis.attribPct : annualAttrib;
+  const cotMkt  = monthKpis ? monthKpis.mktSum     : annualCotMkt;
+  const polizas = monthKpis ? monthKpis.polizas ?? 0 : annualPolizas;
+  const prima   = monthKpis ? monthKpis.prima   ?? 0 : annualPrima;
+  const roas    = monthKpis ? null : annualRoas;
+
+  const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const periodCaption = monthKpis
+    ? `${activeMonths.map((m) => MONTH_ABBR[m - 1]).join("/")} ${activeYears[0]}`
+    : "periodo seleccionado";
 
   // Total cotizaciones for full model period (waterfall is always full-period)
   const totalCot = useMemo(
@@ -391,7 +423,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             onClick={() =>
               exportExcel(scope, blocks, roi, monthly, activeYears, allSelected, {
                 attrib, cotMkt, polizas, prima, roas,
-              }, activeYears.length === 1 ? selectedMonths : [])
+              }, activeMonths)
             }
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
@@ -458,6 +490,17 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
         </div>
       )}
 
+      {/* ─── month selector -- afecta toda la página, igual que Canales & ROI ─── */}
+      {monthFilterEnabled && availableMonths.length > 0 && (
+        <MonthSelector
+          availableMonths={availableMonths}
+          selected={activeMonths}
+          onToggle={toggleMonth}
+          onSelectAll={selectAllMonths}
+          enabled={monthFilterEnabled}
+        />
+      )}
+
       {/* ─── SECCION 1: Waterfall + KPIs hero ─── */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="mb-4">
@@ -489,7 +532,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             <p className="text-2xl font-bold text-gray-900 leading-none">
               {cotMkt > 0 ? fmtNum(cotMkt, 0) : "—"}
             </p>
-            <p className="text-xs text-gray-400 mt-1">periodo seleccionado</p>
+            <p className="text-xs text-gray-400 mt-1">{periodCaption}</p>
           </div>
           <div className="bg-white px-4 py-4">
             <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">
@@ -498,16 +541,16 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             <p className="text-2xl font-bold text-gray-900 leading-none">
               {polizas > 0 ? fmtNum(polizas, 0) : "—"}
             </p>
-            <p className="text-xs text-gray-400 mt-1">periodo seleccionado</p>
+            <p className="text-xs text-gray-400 mt-1">{periodCaption}</p>
           </div>
           <div className="bg-white px-4 py-4">
             <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">
               Prima generada por marketing
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-none">
-              {prima > 0 ? fmtMXNM(prima) : "—"}
+              {prima > 0 ? (monthKpis ? fmtMXN(prima) : fmtMXNM(prima)) : "—"}
             </p>
-            <p className="text-xs text-gray-400 mt-1">periodo seleccionado</p>
+            <p className="text-xs text-gray-400 mt-1">{periodCaption}</p>
           </div>
           <div className="bg-white px-4 py-4 md:rounded-br-2xl">
             <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">
@@ -516,7 +559,9 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             <p className="text-2xl font-bold text-gray-900 leading-none">
               {roas != null ? fmtRoas(roas) : "—"}
             </p>
-            <p className="text-xs text-gray-400 mt-1">por cada peso invertido</p>
+            <p className="text-xs text-gray-400 mt-1">
+              {monthKpis ? "n/d a nivel mes" : "por cada peso invertido"}
+            </p>
           </div>
         </div>
       </div>
@@ -543,10 +588,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
         <AttributionMonthly
           monthly={monthly}
           selectedYears={activeYears}
-          roi={roi}
-          selectedMonths={selectedMonths}
-          onToggleMonth={toggleMonth}
-          onSelectAllMonths={selectAllMonths}
+          selectedMonths={activeMonths}
         />
         <p className="text-[10px] text-gray-400 mt-3">
           * El efecto estacional esta incluido dentro del Baseline.

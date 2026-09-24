@@ -1,13 +1,17 @@
 "use client";
 
-import { fmtPct, fmtNum, fmtRoas, CHART_COLORS } from "@/lib/utils";
+import { fmtPct, fmtNum, fmtRoas, CHART_COLORS, aggregateMonthlyAttribution } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
   Channel,
   RoiByYear,
   HeatmapData,
+  ChannelMonthly,
+  MonthlyScenario,
 } from "@/lib/types";
+
+const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 // ─── channel helpers ────────────────────────────────────────────────────────
 
@@ -69,6 +73,25 @@ function aggregate(rows: RoiByYear[]) {
   return { attrib, mktCot: totalMktCot, roas };
 }
 
+// Top-3 canales desde channel_monthly (etapa 2b) -- solo canales MODELADOS,
+// share = % del total de contribucion modelada del mes (mismo criterio que
+// share_contrib en ChannelShell.tsx / deriveMonthlyChannelMetrics).
+function monthlyTopChannels(channelMonthly: ChannelMonthly[], year: number, months: number[]) {
+  const rows = channelMonthly.filter((r) => r.year === year && months.includes(r.month));
+  const cotByCanal: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.contrib_cot == null) continue;
+    cotByCanal[r.canal] = (cotByCanal[r.canal] ?? 0) + r.contrib_cot;
+  }
+  const total = Object.values(cotByCanal).reduce((s, v) => s + v, 0);
+  if (total <= 0) return [];
+  return Object.entries(cotByCanal)
+    .map(([canal, cot]) => ({ canal, share_contrib: (cot / total) * 100 }))
+    .sort((a, b) => b.share_contrib - a.share_contrib)
+    .slice(0, 3)
+    .map((c) => ({ key: `${c.canal}-month`, ...c }));
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
@@ -95,8 +118,11 @@ export function ModelCard({
   channels,
   roi,
   heatmap,
+  monthly = [],
+  channelMonthly = [],
   selectedYears,
   chipYear,
+  selectedMonths = [],
 }: {
   title: string;
   run: ModelRun | null;
@@ -104,8 +130,11 @@ export function ModelCard({
   channels: Channel[];
   roi: RoiByYear[];
   heatmap: HeatmapData[];
+  monthly?: MonthlyScenario[];
+  channelMonthly?: ChannelMonthly[];
   selectedYears: number[];
   chipYear: number | null;
+  selectedMonths?: number[];
 }) {
   const selectedRows = roi.filter((r) => selectedYears.includes(r.year));
   const allRoiYears = roi.map((r) => r.year);
@@ -113,13 +142,29 @@ export function ModelCard({
     allRoiYears.length > 0 &&
     allRoiYears.every((y) => selectedYears.includes(y));
 
-  const { attrib: rawAttrib, mktCot, roas } = aggregate(selectedRows);
+  const { attrib: rawAttrib, mktCot, roas: rawRoas } = aggregate(selectedRows);
 
   // When all available years are selected, defer to the model-level attrib_mkt
   // stored in model_runs. Per-year values come from different source aggregations
   // and don't reproduce the model-period total correctly when summed.
-  const attrib =
+  const rawAttribResolved =
     isAllYears && run?.attrib_mkt != null ? run.attrib_mkt : rawAttrib;
+
+  // ── Filtro de mes (etapa 2b) -- solo con 1 año activo (selectedMonths ya
+  // viene en [] desde DashboardShell cuando no aplica). ROAS se deja en "—":
+  // no hay inversión total (modelados + no-modelados) a nivel mes, y
+  // calcularlo solo con canales modelados subestimaria el denominador vs.
+  // el ROAS anual (ver BITACORA turno 29).
+  const monthActive = selectedMonths.length > 0 && selectedYears.length === 1;
+  const monthRows = monthActive
+    ? monthly.filter((m) => m.year === selectedYears[0] && selectedMonths.includes(m.month))
+    : [];
+  const monthKpis = monthActive
+    ? aggregateMonthlyAttribution(monthRows, roi.find((r) => r.year === selectedYears[0]))
+    : null;
+
+  const attrib = monthKpis ? monthKpis.attribPct : rawAttribResolved;
+  const roas = monthActive ? null : rawRoas;
   const basePct = attrib != null ? 100 - attrib : null;
 
   // chipYear = the year the user last clicked; drives channel chips.
@@ -131,8 +176,13 @@ export function ModelCard({
     .sort((a, b) => (b.contrib_pct ?? 0) - (a.contrib_pct ?? 0));
 
   type TopChannel = { key: string; canal: string; share_contrib: number | null };
+  const monthTopChannels = monthActive
+    ? monthlyTopChannels(channelMonthly, selectedYears[0], selectedMonths)
+    : [];
   const topChannels: TopChannel[] =
-    yearHeatmap.length > 0
+    monthTopChannels.length > 0
+      ? monthTopChannels
+      : yearHeatmap.length > 0
       ? yearHeatmap.slice(0, 3).map((h) => ({
           key: `${h.canal}-${h.year}`,
           canal: h.canal,
@@ -147,6 +197,10 @@ export function ModelCard({
             canal: c.canal,
             share_contrib: c.share_contrib,
           }));
+
+  const chipsPeriodLabel = monthActive
+    ? `${MONTH_ABBR[selectedMonths[selectedMonths.length - 1] - 1]} ${selectedYears[0]}`
+    : displayYear;
 
   const hasDataForYear = selectedRows.length > 0;
 
@@ -195,12 +249,16 @@ export function ModelCard({
                 Cotizaciones atribuidas
               </p>
               <p className="text-xl font-bold text-gray-900">
-                {mktCot != null ? fmtNum(mktCot) : "—"}
+                {(monthKpis ? monthKpis.mktSum : mktCot) != null
+                  ? fmtNum(monthKpis ? monthKpis.mktSum : mktCot!)
+                  : "—"}
               </p>
             </div>
-            {selectedYears.length === 1 && (
+            {(monthActive || selectedYears.length === 1) && (
               <span className="text-xs text-gray-300 font-medium">
-                {selectedYears[0]}
+                {monthActive
+                  ? `${MONTH_ABBR[selectedMonths[selectedMonths.length - 1] - 1]} ${selectedYears[0]}`
+                  : selectedYears[0]}
               </span>
             )}
           </div>
@@ -213,7 +271,9 @@ export function ModelCard({
                 {roas != null ? fmtRoas(roas) : "—"}
               </p>
             </div>
-            <span className="text-xs text-gray-400">por peso invertido</span>
+            <span className="text-xs text-gray-400">
+              {monthActive ? "n/d a nivel mes" : "por peso invertido"}
+            </span>
           </div>
         </div>
       </div>
@@ -251,9 +311,9 @@ export function ModelCard({
         <div className="px-5 pb-4">
           <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-2">
             Principales canales
-            {yearHeatmap.length > 0 && (
+            {(monthActive || yearHeatmap.length > 0) && (
               <span className="ml-1 normal-case font-normal text-gray-300">
-                {displayYear}
+                {chipsPeriodLabel}
               </span>
             )}
           </p>
