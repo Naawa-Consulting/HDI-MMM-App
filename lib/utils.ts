@@ -77,6 +77,23 @@ export function aggregateMonthlyAttribution(
   return { mktSum, attribPct, polizas, prima };
 }
 
+// Inversión total (solo canales MODELADOS) para un año+mes(es) desde
+// channel_monthly -- usada para ROAS a nivel mes. A diferencia del ROAS
+// anual (que incluye inversión de canales de referencia no-modelados, ver
+// compute_s22_optim.py budget_an), este total es SOLO de los canales que sí
+// entran al modelo -- channel_monthly no cubre no-modelados (ver migración
+// 002_channel_monthly.sql). El ROAS resultante puede salir un poco más alto
+// que el anual por este alcance más chico; se documenta en la UI.
+export function monthlyModeledInvestment(
+  channelMonthly: { year: number; month: number; inv: number | null }[],
+  year: number,
+  months: number[],
+): number {
+  return channelMonthly
+    .filter((r) => r.year === year && months.includes(r.month))
+    .reduce((s, r) => s + (r.inv ?? 0), 0);
+}
+
 export const SCOPE_LABELS: Record<string, string> = {
   nacional: "Nacional",
   cdmx: "CDMX",

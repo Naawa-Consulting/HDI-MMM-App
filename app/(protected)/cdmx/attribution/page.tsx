@@ -1,5 +1,5 @@
 import { getLatestRun } from "@/lib/queries/models";
-import { getAttributionBlocks, getRoiByYear } from "@/lib/queries/channels";
+import { getAttributionBlocks, getRoiByYear, getChannelMonthly } from "@/lib/queries/channels";
 import { getMonthlyScenarios } from "@/lib/queries/timeseries";
 import { AttributionShell } from "../../nacional/attribution/AttributionShell";
 
@@ -15,10 +15,11 @@ export default async function CdmxAttributionPage() {
     );
   }
 
-  const [blocks, monthly, roi] = await Promise.all([
+  const [blocks, monthly, roi, channelMonthly] = await Promise.all([
     getAttributionBlocks(run.id),
     getMonthlyScenarios(run.id),
     getRoiByYear(run.id),
+    getChannelMonthly(run.id),
   ]);
 
   return (
@@ -27,6 +28,7 @@ export default async function CdmxAttributionPage() {
       blocks={blocks}
       roi={roi}
       monthly={monthly}
+      channelMonthly={channelMonthly}
       scope="cdmx"
     />
   );

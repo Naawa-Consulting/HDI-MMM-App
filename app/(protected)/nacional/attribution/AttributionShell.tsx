@@ -5,12 +5,13 @@ import { AttributionWaterfall } from "@/components/charts/AttributionWaterfall";
 import { AttributionYearChart } from "@/components/charts/AttributionYearChart";
 import { AttributionMonthly } from "@/components/charts/AttributionMonthly";
 import { MonthSelector } from "@/components/MonthSelector";
-import { fmtPct, fmtNum, fmtMXN, fmtMXNM, fmtRoas, aggregateMonthlyAttribution } from "@/lib/utils";
+import { fmtPct, fmtNum, fmtMXN, fmtMXNM, fmtRoas, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
   RoiByYear,
   MonthlyScenario,
+  ChannelMonthly,
 } from "@/lib/types";
 
 // ─── PDF export ───────────────────────────────────────────────────────────────
@@ -203,11 +204,15 @@ function monthlyTotalCot(rows: MonthlyScenario[]): number {
 }
 
 // Fila sintética para reusar AttributionYearChart/RoiTable (grano año) con
-// los valores del mes seleccionado -- inv/roas quedan null (misma razón que
-// el hero: no hay inversión total confiable a nivel mes).
+// los valores del mes seleccionado. inv/roas = inversión y ROAS de canales
+// MODELADOS ese mes (channel_monthly no cubre no-modelados) -- alcance un
+// poco más chico que el ROAS anual, ver monthlyModeledInvestment() en
+// lib/utils.ts.
 function monthlyRoiRow(
   cotObs: number,
   kpis: { mktSum: number; attribPct: number | null },
+  inv: number | null,
+  roas: number | null,
   yearRow: RoiByYear | undefined,
 ): RoiByYear {
   return {
@@ -217,8 +222,8 @@ function monthlyRoiRow(
     cot_obs: cotObs,
     mkt_cot: kpis.mktSum,
     attrib_pct: kpis.attribPct,
-    inv: null,
-    roas: null,
+    inv,
+    roas,
     close_rate: yearRow?.close_rate ?? null,
     prima_avg: yearRow?.prima_avg ?? null,
     is_partial: yearRow?.is_partial ?? false,
@@ -322,10 +327,11 @@ interface Props {
   blocks: AttributionBlock[];
   roi: RoiByYear[];
   monthly: MonthlyScenario[];
+  channelMonthly?: ChannelMonthly[];
   scope: "nacional" | "cdmx";
 }
 
-export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
+export function AttributionShell({ run, blocks, roi, monthly, channelMonthly = [], scope }: Props) {
   // ── year selector state (same logic as DashboardShell) ────────────────────
   const allYears = useMemo(() => {
     const s = new Set(roi.filter((r) => r.mkt_cot != null).map((r) => r.year));
@@ -405,21 +411,27 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
     aggregateHero(filteredRoi, run, allSelected);
 
   // Cuando hay mes(es) especifico(s), los KPIs hero se recalculan a nivel
-  // mes (mismo criterio que Etapa 1) -- ROAS se deja en "—": no hay
-  // inversión total (modelados + no-modelados) confiable a nivel mes (ver
-  // BITACORA turno 29, misma decisión que ModelCard.tsx).
+  // mes (mismo criterio que Etapa 1). ROAS = cotizaciones atribuidas * cierre
+  // * prima / inversión de canales MODELADOS ese mes (channel_monthly no
+  // cubre no-modelados) -- alcance un poco más chico que el ROAS anual,
+  // mismo criterio que ModelCard.tsx.
   const monthRows = monthFilterEnabled && activeMonths.length > 0
     ? monthly.filter((m) => m.year === activeYears[0] && activeMonths.includes(m.month))
     : [];
   const monthKpis = monthRows.length > 0
     ? aggregateMonthlyAttribution(monthRows, roi.find((r) => r.year === activeYears[0]))
     : null;
+  const monthInv = monthKpis
+    ? monthlyModeledInvestment(channelMonthly, activeYears[0], activeMonths)
+    : 0;
+  const monthRoas =
+    monthKpis && monthInv > 0 && monthKpis.prima != null ? monthKpis.prima / monthInv : null;
 
   const attrib  = monthKpis ? monthKpis.attribPct : annualAttrib;
   const cotMkt  = monthKpis ? monthKpis.mktSum     : annualCotMkt;
   const polizas = monthKpis ? monthKpis.polizas ?? 0 : annualPolizas;
   const prima   = monthKpis ? monthKpis.prima   ?? 0 : annualPrima;
-  const roas    = monthKpis ? null : annualRoas;
+  const roas    = monthKpis ? monthRoas : annualRoas;
 
   const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const periodCaption = monthKpis
@@ -439,7 +451,10 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
   const activeBlocks    = monthKpis ? monthlyBlocksFromRows(monthRows) : blocks;
   const activeTotalCot  = monthKpis ? monthlyTotalCot(monthRows) : totalCot;
   const sectionTwoRoi   = monthKpis
-    ? [monthlyRoiRow(activeTotalCot, monthKpis, roi.find((r) => r.year === activeYears[0]))]
+    ? [monthlyRoiRow(
+        activeTotalCot, monthKpis, monthInv > 0 ? monthInv : null, monthRoas,
+        roi.find((r) => r.year === activeYears[0]),
+      )]
     : filteredRoi;
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -628,7 +643,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
               {roas != null ? fmtRoas(roas) : "—"}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              {monthKpis ? "n/d a nivel mes" : "por cada peso invertido"}
+              {monthKpis ? "canales modelados" : "por cada peso invertido"}
             </p>
           </div>
         </div>
@@ -647,7 +662,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
         </div>
         {monthKpis && (
           <p className="text-[10px] text-gray-400 mt-3">
-            Inversión y ROAS no disponibles a nivel mes (ver nota en KPIs de arriba).
+            Inversión y ROAS del mes: solo canales modelados (channel_monthly no cubre canales de referencia no-modelados).
           </p>
         )}
       </div>

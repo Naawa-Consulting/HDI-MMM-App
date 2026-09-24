@@ -1,6 +1,6 @@
 "use client";
 
-import { fmtPct, fmtNum, fmtRoas, CHART_COLORS, aggregateMonthlyAttribution } from "@/lib/utils";
+import { fmtPct, fmtNum, fmtRoas, CHART_COLORS, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
@@ -152,9 +152,12 @@ export function ModelCard({
 
   // ── Filtro de mes (etapa 2b) -- solo con 1 año activo (selectedMonths ya
   // viene en [] desde DashboardShell cuando no aplica). ROAS se deja en "—":
-  // no hay inversión total (modelados + no-modelados) a nivel mes, y
-  // calcularlo solo con canales modelados subestimaria el denominador vs.
-  // el ROAS anual (ver BITACORA turno 29).
+  // ROAS mensual = cotizaciones atribuidas * cierre * prima / inversión de
+  // canales MODELADOS ese mes (channel_monthly no cubre no-modelados, ver
+  // migración 002_channel_monthly.sql) -- alcance un poco más chico que el
+  // ROAS anual (que sí incluye inversión de referencia no-modelada), puede
+  // salir algo más alto por eso. Se prefiere mostrar un número real (aunque
+  // con ese matiz de alcance) a dejarlo vacío.
   const monthActive = selectedMonths.length > 0 && selectedYears.length === 1;
   const monthRows = monthActive
     ? monthly.filter((m) => m.year === selectedYears[0] && selectedMonths.includes(m.month))
@@ -164,7 +167,14 @@ export function ModelCard({
     : null;
 
   const attrib = monthKpis ? monthKpis.attribPct : rawAttribResolved;
-  const roas = monthActive ? null : rawRoas;
+  const roiYearForMonth = roi.find((r) => r.year === selectedYears[0]);
+  const monthInv = monthActive
+    ? monthlyModeledInvestment(channelMonthly, selectedYears[0], selectedMonths)
+    : 0;
+  const monthPrima = monthKpis?.prima ?? null;
+  const monthRoas =
+    monthActive && monthInv > 0 && monthPrima != null ? monthPrima / monthInv : null;
+  const roas = monthActive ? monthRoas : rawRoas;
   const basePct = attrib != null ? 100 - attrib : null;
 
   // chipYear = the year the user last clicked; drives channel chips.
@@ -272,7 +282,7 @@ export function ModelCard({
               </p>
             </div>
             <span className="text-xs text-gray-400">
-              {monthActive ? "n/d a nivel mes" : "por peso invertido"}
+              {monthActive ? "canales modelados" : "por peso invertido"}
             </span>
           </div>
         </div>
