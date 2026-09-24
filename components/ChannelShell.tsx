@@ -123,7 +123,16 @@ function deriveChannelMetrics(
   activeYears: number[],
   allSelected: boolean,
 ): Channel[] {
-  if (allSelected || !heatmap.length) return channels;
+  // BUG CORREGIDO 2026-09-24: "Todos" (allSelected) devolvía `channels` tal
+  // cual -- esa tabla NO es un agregado histórico, es una foto de un solo
+  // año (2025, ver push_nacional.py: "Channels (only upsert once — use 2025
+  // block as source)"). El usuario lo notó con OOH: seleccionar "Todos"
+  // seguía mostrando 0%, porque en realidad seguía mostrando el snapshot de
+  // 2025 (donde OOH es correctamente n/d), no una agregación de 2022-2026
+  // (donde OOH sí tuvo contribución real). `activeYears` ya es `allYears`
+  // cuando allSelected=true (ver el caller), así que basta con dejar que
+  // pase por la misma agregación que cualquier selección de varios años.
+  if (!heatmap.length) return channels;
 
   const roiMap = new Map(roi.map((r) => [r.year, r]));
   const activeRoi = roi.filter((r) => activeYears.includes(r.year));
@@ -139,19 +148,29 @@ function deriveChannelMetrics(
       ? activeRoi.reduce((s, r) => s + (r.prima_avg ?? 0) * (r.cot_obs ?? 0), 0) / totalObs
       : 0;
 
-  // Aggregate heatmap for selected years, per canal
-  type Acc = { cot: number; inv: number; obs: number; satSum: number; satN: number };
+  // Aggregate heatmap for selected years, per canal.
+  // BUG CORREGIDO 2026-09-24: un canal con contrib_pct=null en un año dado
+  // (p.ej. OOH 2025-26, inversion de marca no modelada -- ver
+  // project_ooh_auto_vs_marca) se trataba como 0 (`h.contrib_pct ?? 0`) y se
+  // diluía contra el `obs` de ESE año igual que un año con contribucion real
+  // -- terminaba pareciendo "0% en todo el histórico" aunque el canal sí
+  // contribuyó de verdad en otros años de la misma selección. Ahora
+  // `obsKnown`/`cotKnown` solo acumulan años donde el canal tiene dato real;
+  // `contrib_pct` sale null solo si NINGÚN año seleccionado tiene dato real
+  // para ese canal.
+  type Acc = { cot: number; obsKnown: number; inv: number; satSum: number; satN: number };
   const agg: Record<string, Acc> = {};
 
   for (const h of heatmap) {
     if (!activeYears.includes(h.year)) continue;
     const r   = roiMap.get(h.year);
     const obs = r?.cot_obs ?? 0;
-    const cot = ((h.contrib_pct ?? 0) / 100) * obs;
-    if (!agg[h.canal]) agg[h.canal] = { cot: 0, inv: 0, obs: 0, satSum: 0, satN: 0 };
-    agg[h.canal].cot += cot;
+    if (!agg[h.canal]) agg[h.canal] = { cot: 0, obsKnown: 0, inv: 0, satSum: 0, satN: 0 };
+    if (h.contrib_pct != null) {
+      agg[h.canal].cot += (h.contrib_pct / 100) * obs;
+      agg[h.canal].obsKnown += obs;
+    }
     agg[h.canal].inv += h.inv ?? 0;
-    agg[h.canal].obs += obs;
     // Accumulate sat_op weighted by active weeks (proxy: cot > 0)
     if (h.sat_op != null && h.sat_op > 0) {
       agg[h.canal].satSum += h.sat_op;
@@ -168,17 +187,17 @@ function deriveChannelMetrics(
     const a = agg[c.canal];
     if (!a) return c;
 
+    const hasData     = a.obsKnown > 0;   // false = ningún año activo tiene dato real para este canal (n/d)
     const cot         = a.cot;
     const inv         = a.inv;
-    const obs         = a.obs;
-    const contrib_pct = obs > 0 ? cot / obs * 100 : null;
+    const contrib_pct = hasData ? cot / a.obsKnown * 100 : null;
     const share_inv   = totalInv > 0 && inv > 0 ? inv / totalInv * 100 : null;
+    // Antes: un canal sin dato real (hasData=false, cot=0 por no acumularse)
+    // caía en la misma rama que un canal modelado con contribución real de
+    // cero, mostrando "0%" en vez de "—" (n/d) -- ver fix de `contrib_pct`
+    // arriba, mismo criterio aplicado aquí.
     const share_contrib =
-      c.is_modeled && totalModeledCot > 0
-        ? cot / totalModeledCot * 100
-        : c.is_modeled
-        ? 0
-        : null;
+      !c.is_modeled ? null : !hasData ? null : totalModeledCot > 0 ? cot / totalModeledCot * 100 : 0;
     const roas =
       inv > 0 && cot > 0 && avgClose > 0 && avgPrima > 0
         ? (cot * avgClose * avgPrima) / inv
@@ -189,7 +208,7 @@ function deriveChannelMetrics(
 
     return {
       ...c,
-      contrib_cot:   cot > 0 ? cot : null,
+      contrib_cot:   hasData ? cot : null,
       contrib_pct,
       inv:           inv > 0 ? inv : null,
       share_inv,

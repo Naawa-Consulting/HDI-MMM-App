@@ -72,10 +72,17 @@ function aggregate(rows: RoiByYear[]) {
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
+  // iso es un `date` de Postgres (sin hora, p.ej. run.data_through) -- sin
+  // timeZone:"UTC" explícito, toLocaleDateString usa la zona local del
+  // proceso y en cualquier huso detrás de UTC (México, UTC-6) el día se
+  // corre un día hacia atrás (2026-08-31 se mostraba como "30 de agosto").
+  // Bug real reportado por el usuario 2026-09-24 ("información al 26 de
+  // julio" cuando data_through era 2026-07-27).
   return new Date(iso).toLocaleDateString("es-MX", {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 

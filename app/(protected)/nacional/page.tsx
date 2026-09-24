@@ -25,8 +25,10 @@ export default async function NacionalPage() {
   const mktBlock = blocks.find((b) => b.block === "marketing");
   const mktPct = mktBlock?.pct ?? run.attrib_mkt;
 
+  // timeZone:"UTC" obligatorio -- iso es un `date` sin hora (data_through);
+  // sin esto, en husos detrás de UTC el día se corre uno hacia atrás.
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
+    new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">

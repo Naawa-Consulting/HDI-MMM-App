@@ -21,9 +21,13 @@ export default async function ModelHealthPage() {
   const nacional = runs.filter((r) => r.model_scope === "nacional");
   const cdmx = runs.filter((r) => r.model_scope === "cdmx");
 
+  // timeZone:"UTC" obligatorio -- iso aquí es `data_through`, un `date` sin
+  // hora; sin esto, en husos detrás de UTC el día se corre uno hacia atrás.
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+    new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
+  // formatDateTime SÍ usa la zona local (por diseño): run_date es un
+  // timestamp real (instante), no una fecha de calendario.
   const formatDateTime = (iso: string) =>
     new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 

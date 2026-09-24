@@ -329,10 +329,14 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
           </h1>
           <p className="text-gray-500 text-sm mt-1">
             {scope === "nacional" ? "Nacional" : "CDMX"} — informacion al{" "}
+            {/* timeZone:"UTC" obligatorio -- data_through es un `date` sin
+                hora; sin esto, en husos detrás de UTC el día se corre uno
+                hacia atrás (bug real reportado por el usuario 2026-09-24). */}
             {new Date(run.data_through).toLocaleDateString("es-MX", {
               day: "numeric",
               month: "long",
               year: "numeric",
+              timeZone: "UTC",
             })}
           </p>
         </div>
