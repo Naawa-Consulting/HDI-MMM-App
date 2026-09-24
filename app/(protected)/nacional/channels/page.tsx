@@ -1,5 +1,5 @@
 import { getLatestRun } from "@/lib/queries/models";
-import { getChannels, getRoiByYear, getHeatmapData } from "@/lib/queries/channels";
+import { getChannels, getRoiByYear, getHeatmapData, getChannelMonthly } from "@/lib/queries/channels";
 import { ChannelShell } from "@/components/ChannelShell";
 
 export const revalidate = 300;
@@ -14,13 +14,20 @@ export default async function NacionalChannelsPage() {
     );
   }
 
-  const [channels, roi, heatmap] = await Promise.all([
+  const [channels, roi, heatmap, channelMonthly] = await Promise.all([
     getChannels(run.id),
     getRoiByYear(run.id),
     getHeatmapData(run.id),
+    getChannelMonthly(run.id),
   ]);
 
   return (
-    <ChannelShell scope="nacional" channels={channels} roi={roi} heatmap={heatmap} />
+    <ChannelShell
+      scope="nacional"
+      channels={channels}
+      roi={roi}
+      heatmap={heatmap}
+      channelMonthly={channelMonthly}
+    />
   );
 }

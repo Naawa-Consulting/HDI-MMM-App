@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Channel, AttributionBlock, RoiByYear, HeatmapData } from "@/lib/types";
+import type { Channel, AttributionBlock, RoiByYear, HeatmapData, ChannelMonthly } from "@/lib/types";
 
 export async function getChannels(runId: string): Promise<Channel[]> {
   const supabase = await createClient();
@@ -40,6 +40,18 @@ export async function getHeatmapData(runId: string): Promise<HeatmapData[]> {
     .select("*")
     .eq("run_id", runId)
     .order("year");
+
+  return data ?? [];
+}
+
+export async function getChannelMonthly(runId: string): Promise<ChannelMonthly[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("channel_monthly")
+    .select("*")
+    .eq("run_id", runId)
+    .order("year")
+    .order("month");
 
   return data ?? [];
 }

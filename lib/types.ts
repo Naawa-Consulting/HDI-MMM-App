@@ -145,6 +145,17 @@ export interface OptimizationTotal {
   uplift_ratio: number | null;
 }
 
+export interface ChannelMonthly {
+  id: string;
+  run_id: string;
+  canal: string;
+  year: number;
+  month: number;
+  inv: number | null;
+  contrib_cot: number | null;
+  roas: number | null;
+}
+
 export interface HeatmapData {
   id: string;
   run_id: string;
@@ -179,6 +190,7 @@ export interface Database {
       optimization_runs:   { Row: OptimizationRun };
       optimization_totals: { Row: OptimizationTotal };
       heatmap_data:        { Row: HeatmapData };
+      channel_monthly:     { Row: ChannelMonthly };
       econ_params:         { Row: EconParams };
     };
   };

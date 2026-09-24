@@ -2,8 +2,9 @@
 
 import { useState, useMemo, useRef } from "react";
 import { ChannelBarChart } from "@/components/charts/ChannelBarChart";
+import { MonthSelector } from "@/components/MonthSelector";
 import { fmtPct, fmtMXN, fmtRoas, fmtNum } from "@/lib/utils";
-import type { Channel, RoiByYear, HeatmapData } from "@/lib/types";
+import type { Channel, RoiByYear, HeatmapData, ChannelMonthly, MonthlyScenario } from "@/lib/types";
 
 // ─── PDF export ───────────────────────────────────────────────────────────────
 
@@ -48,11 +49,17 @@ async function exportExcel(
   heatmap: HeatmapData[] | undefined,
   activeYears: number[],
   allSelected: boolean,
+  activeMonths: number[] = [],
 ) {
   const { utils, writeFile } = await import("xlsx");
   const wb    = utils.book_new();
   const label  = scope === "nacional" ? "Nacional" : "CDMX";
-  const period = allSelected ? "Periodo completo" : activeYears.join(", ");
+  const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const period = allSelected
+    ? "Periodo completo"
+    : activeYears.join(", ") + (activeMonths.length > 0
+        ? ` (${activeMonths.map((m) => MONTH_ABBR[m - 1]).join(", ")})`
+        : "");
 
   // ── Hoja 1: Canales modelados ─────────────────────────────────────────────
   const chRows = [
@@ -106,7 +113,8 @@ async function exportExcel(
     utils.book_append_sheet(wb, wsNm, "Canales No Modelados");
   }
 
-  writeFile(wb, `canales_${scope}_${activeYears.join("-")}.xlsx`);
+  const monthSuffix = activeMonths.length > 0 ? `_m${activeMonths.join("-")}` : "";
+  writeFile(wb, `canales_${scope}_${activeYears.join("-")}${monthSuffix}.xlsx`);
 }
 
 // ─── Derive year-filtered channel metrics from heatmap × roi ──────────────────
@@ -216,6 +224,67 @@ function deriveChannelMetrics(
       roas,
       sat_op,
     };
+  });
+}
+
+// ─── Derive month-filtered channel metrics from channel_monthly (etapa 2) ─────
+//
+// Solo aplica sobre el resultado de deriveChannelMetrics para UN año activo
+// (ver monthFilterEnabled en el shell). channel_monthly solo cubre canales
+// MODELADOS -- un canal sin fila ahi (no-modelado) se deja tal cual venia
+// (su dato anual de ese año, ya resuelto por deriveChannelMetrics).
+
+function deriveMonthlyChannelMetrics(
+  channelsAnnual: Channel[],
+  channelMonthly: ChannelMonthly[],
+  monthly: MonthlyScenario[],
+  roi: RoiByYear[],
+  year: number,
+  months: number[],
+): Channel[] {
+  const rows = channelMonthly.filter(
+    (r) => r.year === year && months.includes(r.month)
+  );
+  if (!rows.length) return channelsAnnual;
+
+  const roiYear = roi.find((r) => r.year === year);
+  const close = roiYear?.close_rate ?? null;   // escala 0-100, igual que en deriveChannelMetrics
+  const prima = roiYear?.prima_avg ?? null;
+
+  const totalObs = monthly
+    .filter((m) => m.year === year && months.includes(m.month))
+    .reduce((s, m) => s + (m.obs ?? 0), 0);
+
+  type Acc = { cot: number; inv: number; hasContrib: boolean; hasInv: boolean };
+  const agg: Record<string, Acc> = {};
+  for (const r of rows) {
+    if (!agg[r.canal]) agg[r.canal] = { cot: 0, inv: 0, hasContrib: false, hasInv: false };
+    if (r.contrib_cot != null) { agg[r.canal].cot += r.contrib_cot; agg[r.canal].hasContrib = true; }
+    if (r.inv != null)         { agg[r.canal].inv += r.inv;         agg[r.canal].hasInv = true; }
+  }
+
+  const totalModeledCot = channelsAnnual
+    .filter((c) => c.is_modeled)
+    .reduce((s, c) => s + (agg[c.canal]?.hasContrib ? agg[c.canal].cot : 0), 0);
+  // share_inv aqui solo compara entre canales MODELADOS (channel_monthly no
+  // cubre no-modelados) -- a diferencia del share_inv anual, que sí los incluye.
+  const totalInv = Object.values(agg).reduce((s, a) => s + (a.hasInv ? a.inv : 0), 0);
+
+  return channelsAnnual.map((c) => {
+    const a = agg[c.canal];
+    if (!a) return c;
+
+    const cot = a.hasContrib ? a.cot : null;
+    const inv = a.hasInv ? a.inv : null;
+    const contrib_pct   = cot != null && totalObs > 0 ? (cot / totalObs) * 100 : null;
+    const share_contrib = cot == null ? null : totalModeledCot > 0 ? (cot / totalModeledCot) * 100 : 0;
+    const share_inv     = inv != null && inv > 0 && totalInv > 0 ? (inv / totalInv) * 100 : null;
+    const roas =
+      inv != null && inv > 0 && cot != null && cot > 0 && close != null && prima != null
+        ? (cot * (close / 100) * prima) / inv
+        : null;
+
+    return { ...c, contrib_cot: cot, contrib_pct, inv, share_inv, share_contrib, roas };
   });
 }
 
@@ -363,13 +432,15 @@ function YearSelector({
 // ─── Main shell ───────────────────────────────────────────────────────────────
 
 interface Props {
-  scope:    "nacional" | "cdmx";
-  channels: Channel[];
-  roi:      RoiByYear[];
-  heatmap?: HeatmapData[];
+  scope:          "nacional" | "cdmx";
+  channels:       Channel[];
+  roi:            RoiByYear[];
+  heatmap?:       HeatmapData[];
+  channelMonthly?: ChannelMonthly[];
+  monthly?:       MonthlyScenario[];
 }
 
-export function ChannelShell({ scope, channels, roi, heatmap }: Props) {
+export function ChannelShell({ scope, channels, roi, heatmap, channelMonthly = [], monthly = [] }: Props) {
   // ── Year selector state ───────────────────────────────────────────────────
   const allYears = useMemo(() => {
     const s = new Set(roi.filter((r) => r.cot_obs != null).map((r) => r.year));
@@ -390,7 +461,11 @@ export function ChannelShell({ scope, channels, roi, heatmap }: Props) {
     [roi]
   );
 
+  // Filtro de mes (etapa 2) -- solo con exactamente 1 año activo (no "Todos").
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+
   function toggle(y: number) {
+    setSelectedMonths([]);
     if (allSelected) { setAllSelected(false); setSelected([y]); return; }
     setSelected((prev) =>
       prev.includes(y)
@@ -400,14 +475,35 @@ export function ChannelShell({ scope, channels, roi, heatmap }: Props) {
   }
 
   const activeYears = allSelected ? allYears : selected;
+  const monthFilterEnabled = !allSelected && activeYears.length === 1;
+  const activeMonths = monthFilterEnabled ? selectedMonths : [];
+
+  const availableMonths = monthFilterEnabled
+    ? [...new Set(
+        channelMonthly.filter((r) => r.year === activeYears[0]).map((r) => r.month)
+      )].sort((a, b) => a - b)
+    : [];
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const filteredHeatmap = heatmap?.filter((h) => activeYears.includes(h.year)) ?? [];
 
   // Channel metrics react to selected years via heatmap × roi derivation
-  const activeChannels = useMemo(
+  const activeChannelsAnnual = useMemo(
     () => deriveChannelMetrics(channels, heatmap ?? [], roi, activeYears, allSelected),
     [channels, heatmap, roi, activeYears, allSelected],
+  );
+
+  // Cuando hay mes(es) especifico(s) elegidos, se sobrepone la contribucion/
+  // ROI real de channel_monthly (solo canales modelados; los no-modelados
+  // se quedan con su dato anual, ver deriveMonthlyChannelMetrics).
+  const activeChannels = useMemo(
+    () =>
+      monthFilterEnabled && activeMonths.length > 0
+        ? deriveMonthlyChannelMetrics(
+            activeChannelsAnnual, channelMonthly, monthly, roi, activeYears[0], activeMonths
+          )
+        : activeChannelsAnnual,
+    [activeChannelsAnnual, channelMonthly, monthly, roi, activeYears, monthFilterEnabled, activeMonths],
   );
 
   const modeled    = activeChannels.filter((c) => c.is_modeled);
@@ -449,7 +545,7 @@ export function ChannelShell({ scope, channels, roi, heatmap }: Props) {
           </button>
           <button
             onClick={() =>
-              exportExcel(scope, modeled, nonModeled, activeHeatmap, activeYears, allSelected)
+              exportExcel(scope, modeled, nonModeled, activeHeatmap, activeYears, allSelected, activeMonths)
             }
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
@@ -470,8 +566,25 @@ export function ChannelShell({ scope, channels, roi, heatmap }: Props) {
           allSelected={allSelected}
           partialYears={partialYears}
           onToggle={toggle}
-          onSelectAll={() => { setAllSelected(true); setSelected(allYears); }}
+          onSelectAll={() => { setSelectedMonths([]); setAllSelected(true); setSelected(allYears); }}
         />
+      )}
+
+      {/* Month selector (etapa 2) -- solo con 1 año activo */}
+      {monthFilterEnabled && availableMonths.length > 0 && (
+        <div className="mb-6 -mt-3">
+          <MonthSelector
+            availableMonths={availableMonths}
+            selected={activeMonths}
+            onToggle={(m) =>
+              setSelectedMonths((prev) =>
+                prev.includes(m) ? prev.filter((p) => p !== m) : [...prev, m].sort((a, b) => a - b)
+              )
+            }
+            onSelectAll={() => setSelectedMonths([])}
+            enabled={monthFilterEnabled}
+          />
+        </div>
       )}
 
       {/* ── Channel cards ─────────────────────────────────────────────────── */}
