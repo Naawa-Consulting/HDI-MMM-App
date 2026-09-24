@@ -38,6 +38,40 @@ export function fmtRoas(value: number | null | undefined): string {
   return `${value.toFixed(1)}x`;
 }
 
+// Agrega filas de monthly_scenarios (uno o varios meses de un mismo año) a
+// atribución/pólizas/prima estimadas. Mismo criterio de mktValue/denom que
+// AttributionMonthly.tsx (real=mkt_act, forecast=mkt_plan) para que ambas
+// vistas nunca diverjan. Pólizas/prima usan la tasa de cierre y prima
+// promedio ANUAL (roi_by_year) — no existe grano mensual real para esas dos.
+export function aggregateMonthlyAttribution(
+  rows: {
+    obs: number | null;
+    base: number | null;
+    agentes: number | null;
+    estac: number | null;
+    mkt_act: number | null;
+    mkt_plan: number | null;
+  }[],
+  roiYear: { close_rate: number | null; prima_avg: number | null } | undefined,
+) {
+  let mktSum = 0;
+  let denomSum = 0;
+  for (const m of rows) {
+    const isForecast = m.obs == null;
+    const mktValue = isForecast ? m.mkt_plan : m.mkt_act;
+    const baseline = m.base != null ? m.base + (m.estac ?? 0) : null;
+    const denom = m.obs ?? ((baseline ?? 0) + (m.agentes ?? 0) + (mktValue ?? 0));
+    if (mktValue != null) mktSum += mktValue;
+    denomSum += denom;
+  }
+  const attribPct = denomSum > 0 ? (mktSum / denomSum) * 100 : null;
+  const closeRate = roiYear?.close_rate ?? null;
+  const primaAvg = roiYear?.prima_avg ?? null;
+  const polizas = closeRate != null ? mktSum * (closeRate / 100) : null;
+  const prima = polizas != null && primaAvg != null ? polizas * primaAvg : null;
+  return { mktSum, attribPct, polizas, prima };
+}
+
 export const SCOPE_LABELS: Record<string, string> = {
   nacional: "Nacional",
   cdmx: "CDMX",

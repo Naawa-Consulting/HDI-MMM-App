@@ -66,12 +66,18 @@ async function exportExcel(
   activeYears: number[],
   allSelected: boolean,
   hero: { attrib: number | null; cotMkt: number; polizas: number; prima: number; roas: number | null },
+  activeMonths: number[] = [],
 ) {
   const { utils, writeFile } = await import("xlsx");
 
   const wb = utils.book_new();
   const label = scope === "nacional" ? "Nacional" : "CDMX";
-  const period = allSelected ? "Periodo completo" : activeYears.join(", ");
+  const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const period = allSelected
+    ? "Periodo completo"
+    : activeYears.join(", ") + (activeMonths.length > 0
+        ? ` (${activeMonths.map((m) => MONTH_ABBR[m - 1]).join(", ")})`
+        : "");
 
   // ── Hoja 1: Resumen KPIs ──────────────────────────────────────────────────
   const kpiRows = [
@@ -138,6 +144,7 @@ async function exportExcel(
   const MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const filteredMonthly = monthly
     .filter((m) => activeYears.includes(m.year) && (m.obs != null || m.mkt_plan != null))
+    .filter((m) => activeMonths.length === 0 || activeMonths.includes(m.month))
     .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
   const monthRows = [
     ["Año", "Mes", "Baseline", "Agentes", "Marketing (real)", "Marketing (plan)", "Observado", "Tipo"],
@@ -155,7 +162,8 @@ async function exportExcel(
   const wsMonth = utils.aoa_to_sheet(monthRows);
   utils.book_append_sheet(wb, wsMonth, "Evolucion Mensual");
 
-  writeFile(wb, `atribucion_${scope}_${activeYears.join("-")}.xlsx`);
+  const monthSuffix = activeMonths.length > 0 ? `_m${activeMonths.join("-")}` : "";
+  writeFile(wb, `atribucion_${scope}_${activeYears.join("-")}${monthSuffix}.xlsx`);
 }
 
 // ─── hero KPI aggregation ────────────────────────────────────────────────────
@@ -277,12 +285,19 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
   );
   const [allSelected, setAllSelected] = useState(false);
 
+  // Filtro de mes -- solo aplica a la sección "Evolución mensual" (ver
+  // AttributionMonthly), acotado a exactamente un año activo. Se reinicia
+  // cada vez que cambia la selección de año para no arrastrar un mes de
+  // un año que ya no está activo.
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+
   const partialYears = useMemo(
     () => new Set(roi.filter((r) => r.is_partial).map((r) => r.year)),
     [roi]
   );
 
   function toggle(y: number) {
+    setSelectedMonths([]);
     if (allSelected) {
       setAllSelected(false);
       setSelected([y]);
@@ -296,8 +311,19 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
   }
 
   function selectAll() {
+    setSelectedMonths([]);
     setAllSelected(true);
     setSelected(allYears);
+  }
+
+  function toggleMonth(m: number) {
+    setSelectedMonths((prev) =>
+      prev.includes(m) ? prev.filter((p) => p !== m) : [...prev, m].sort((a, b) => a - b)
+    );
+  }
+
+  function selectAllMonths() {
+    setSelectedMonths([]);
   }
 
   const activeYears = allSelected ? allYears : selected;
@@ -365,7 +391,7 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
             onClick={() =>
               exportExcel(scope, blocks, roi, monthly, activeYears, allSelected, {
                 attrib, cotMkt, polizas, prima, roas,
-              })
+              }, activeYears.length === 1 ? selectedMonths : [])
             }
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
@@ -514,7 +540,14 @@ export function AttributionShell({ run, blocks, roi, monthly, scope }: Props) {
         <p className="text-gray-500 text-xs mb-4">
           Baseline vs contribucion de marketing por mes
         </p>
-        <AttributionMonthly monthly={monthly} selectedYears={activeYears} />
+        <AttributionMonthly
+          monthly={monthly}
+          selectedYears={activeYears}
+          roi={roi}
+          selectedMonths={selectedMonths}
+          onToggleMonth={toggleMonth}
+          onSelectAllMonths={selectAllMonths}
+        />
         <p className="text-[10px] text-gray-400 mt-3">
           * El efecto estacional esta incluido dentro del Baseline.
         </p>

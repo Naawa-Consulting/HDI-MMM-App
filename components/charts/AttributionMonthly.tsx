@@ -15,8 +15,9 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import type { MonthlyScenario } from "@/lib/types";
-import { fmtNum } from "@/lib/utils";
+import type { MonthlyScenario, RoiByYear } from "@/lib/types";
+import { fmtNum, fmtPct, fmtMXN, aggregateMonthlyAttribution } from "@/lib/utils";
+import { MonthSelector } from "@/components/MonthSelector";
 
 const MONTH_LABELS = [
   "Ene", "Feb", "Mar", "Abr", "May", "Jun",
@@ -182,26 +183,84 @@ function buildData(monthly: MonthlyScenario[], years: number[]): DataRow[] {
 interface Props {
   monthly: MonthlyScenario[];
   selectedYears: number[];
+  roi: RoiByYear[];
+  selectedMonths: number[];
+  onToggleMonth: (month: number) => void;
+  onSelectAllMonths: () => void;
 }
 
-export function AttributionMonthly({ monthly, selectedYears }: Props) {
-  const data = buildData(monthly, selectedYears);
+export function AttributionMonthly({
+  monthly, selectedYears, roi, selectedMonths, onToggleMonth, onSelectAllMonths,
+}: Props) {
+  // El filtro de mes solo tiene sentido con exactamente un año activo (no
+  // "Todos" ni multi-año) -- con varios años, "marzo" sería ambiguo.
+  const monthFilterEnabled = selectedYears.length === 1;
+  const activeMonths = monthFilterEnabled ? selectedMonths : [];
+
+  const monthlyForYear = monthFilterEnabled
+    ? monthly.filter((m) => m.year === selectedYears[0])
+    : [];
+  const availableMonths = [...new Set(monthlyForYear.map((m) => m.month))].sort(
+    (a, b) => a - b
+  );
+
+  const filteredMonthly =
+    activeMonths.length > 0
+      ? monthly.filter((m) => activeMonths.includes(m.month))
+      : monthly;
+
+  const data = buildData(filteredMonthly, selectedYears);
 
   const hasAgentes    = data.some((d) => d.Agentes   != null && d.Agentes   !== 0);
   const forecastRows  = data.filter((d) => d.isForecast);
   const hasForecast   = forecastRows.length > 0;
   const lastForecastMes = hasForecast ? forecastRows[forecastRows.length - 1].mes : null;
 
-  if (data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[260px] text-gray-400 text-sm">
-        Sin datos para el periodo seleccionado.
-      </div>
-    );
-  }
+  // Mini KPIs solo cuando se acota a mes(es) específico(s) -- con "Todos los
+  // meses" ya se ve en el KPI hero anual de la sección 1, no se duplica aquí.
+  const showMonthKpis = activeMonths.length > 0;
+  const roiYear = roi.find((r) => r.year === selectedYears[0]);
+  const monthKpis = showMonthKpis
+    ? aggregateMonthlyAttribution(monthlyForYear.filter((m) => activeMonths.includes(m.month)), roiYear)
+    : null;
 
   return (
-    <div className="flex items-stretch gap-1">
+    <div className="space-y-3">
+      <MonthSelector
+        availableMonths={availableMonths}
+        selected={activeMonths}
+        onToggle={onToggleMonth}
+        onSelectAll={onSelectAllMonths}
+        enabled={monthFilterEnabled}
+      />
+
+      {showMonthKpis && monthKpis && (
+        <div className="grid grid-cols-3 gap-px bg-gray-100 rounded-lg overflow-hidden border border-gray-100">
+          <div className="bg-white px-3 py-2">
+            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Atribución</p>
+            <p className="text-sm font-bold text-[#65A518]">{fmtPct(monthKpis.attribPct, 1)}</p>
+          </div>
+          <div className="bg-white px-3 py-2">
+            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Pólizas atrib.</p>
+            <p className="text-sm font-bold text-gray-900">
+              {monthKpis.polizas != null ? fmtNum(monthKpis.polizas, 0) : "—"}
+            </p>
+          </div>
+          <div className="bg-white px-3 py-2">
+            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Prima generada</p>
+            <p className="text-sm font-bold text-gray-900">
+              {monthKpis.prima != null ? fmtMXN(monthKpis.prima) : "—"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {data.length === 0 ? (
+        <div className="flex items-center justify-center h-[260px] text-gray-400 text-sm">
+          Sin datos para el periodo seleccionado.
+        </div>
+      ) : (
+      <div className="flex items-stretch gap-1">
       {/* Y axis title */}
       <span
         className="text-[10px] text-gray-400 shrink-0 select-none"
@@ -345,6 +404,8 @@ export function AttributionMonthly({ monthly, selectedYears }: Props) {
           </Line>
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
+      )}
     </div>
   );
 }

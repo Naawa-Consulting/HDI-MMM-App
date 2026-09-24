@@ -353,6 +353,8 @@ export function DashboardShell({
       <DashboardCharts
         monthlyNacional={monthlyNacional}
         monthlyCdmx={monthlyCdmx}
+        roiNacional={roiNacional}
+        roiCdmx={roiCdmx}
         selectedYears={activeYears}
       />
     </div>
