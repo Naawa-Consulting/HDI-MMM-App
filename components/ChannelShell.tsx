@@ -176,7 +176,11 @@ function deriveChannelMetrics(
     const obs = r?.cot_obs ?? 0;
     if (!agg[h.canal]) agg[h.canal] = { cot: 0, obsKnown: 0, inv: 0, satSum: 0, satN: 0 };
     if (h.contrib_pct != null) {
-      agg[h.canal].cot += (h.contrib_pct / 100) * obs;
+      // heatmap_data.contrib_pct = reparto del aporte de MARKETING (suma 100
+      // por año), no % de cotizaciones totales: se aplica sobre mkt_cot del
+      // año (igual que Atribución), no sobre cot_obs. Antes multiplicaba por
+      // obs y sobre-estimaba las cotizaciones por canal.
+      agg[h.canal].cot += (h.contrib_pct / 100) * (r?.mkt_cot ?? 0);
       agg[h.canal].obsKnown += obs;
     }
     agg[h.canal].inv += h.inv ?? 0;
@@ -249,7 +253,7 @@ function deriveMonthlyChannelMetrics(
   if (!rows.length) return channelsAnnual;
 
   const roiYear = roi.find((r) => r.year === year);
-  const close = roiYear?.close_rate ?? null;   // escala 0-100, igual que en deriveChannelMetrics
+  const close = roiYear?.close_rate ?? null;   // FRACCION (0.1477), no 0-100 -- igual que en deriveChannelMetrics
   const prima = roiYear?.prima_avg ?? null;
 
   const totalObs = monthly
@@ -282,7 +286,7 @@ function deriveMonthlyChannelMetrics(
     const share_inv     = inv != null && inv > 0 && totalInv > 0 ? (inv / totalInv) * 100 : null;
     const roas =
       inv != null && inv > 0 && cot != null && cot > 0 && close != null && prima != null
-        ? (cot * (close / 100) * prima) / inv
+        ? (cot * close * prima) / inv
         : null;
 
     return { ...c, contrib_cot: cot, contrib_pct, inv, share_inv, share_contrib, roas };

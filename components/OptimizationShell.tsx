@@ -162,6 +162,9 @@ const METHODOLOGY: Record<string, Record<number, { label: string; bg: string; do
   },
 };
 
+// Porcentaje con signo explícito (evita "+-75.1%" cuando el uplift es negativo)
+const fmtSigned = (v: number, d: number) => `${v > 0 ? "+" : ""}${fmtPct(v, d)}`;
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -263,7 +266,7 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
               <p className="text-gray-500 text-xs mb-1">Uplift cotizaciones</p>
               <p className={`font-semibold text-lg ${upliftCot != null && upliftCot > 0 ? "text-[#65A518]" : "text-gray-900"}`}>
-                {upliftCot != null ? `+${fmtPct(upliftCot, 0)}` : "—"}
+                {upliftCot != null ? fmtSigned(upliftCot, 0) : "—"}
               </p>
               <p className="text-gray-400 text-xs mt-0.5">Sobre aporte de mkt</p>
             </div>
@@ -275,7 +278,7 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
               <div className="flex items-baseline gap-2">
                 <p className="text-[#006729] font-semibold">{fmtNum(totals.opt_pol)}</p>
                 {upliftPol != null && (
-                  <span className="text-xs text-[#65A518] font-medium">+{fmtPct(upliftPol, 0)}</span>
+                  <span className="text-xs text-[#65A518] font-medium">{fmtSigned(upliftPol, 0)}</span>
                 )}
               </div>
               <p className="text-gray-400 text-xs mt-0.5">Ref: {fmtNum(totals.ref_pol)}</p>
@@ -285,7 +288,7 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
               <div className="flex items-baseline gap-2">
                 <p className="text-[#006729] font-semibold">{fmtMXNM(totals.opt_prima)}</p>
                 {upliftPrima != null && (
-                  <span className="text-xs text-[#65A518] font-medium">+{fmtPct(upliftPrima, 0)}</span>
+                  <span className="text-xs text-[#65A518] font-medium">{fmtSigned(upliftPrima, 0)}</span>
                 )}
               </div>
               <p className="text-gray-400 text-xs mt-0.5">Ref: {fmtMXNM(totals.ref_prima)}</p>
@@ -377,8 +380,8 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
                         ? <span className="text-[#006729]">{fmtNum(r.opt_cot, 0)}</span>
                         : "—"}
                     </td>
-                    <td className={`py-2.5 text-right font-medium ${r.uplift != null && r.uplift > 0 ? "text-[#65A518]" : "text-gray-500"}`}>
-                      {r.uplift != null && r.is_modeled ? `+${fmtPct(r.uplift * 100, 1)}` : "—"}
+                    <td className={`py-2.5 text-right font-medium ${r.uplift != null && r.uplift > 0 ? "text-[#65A518]" : r.uplift != null && r.uplift < 0 ? "text-[#E2001A]" : "text-gray-500"}`}>
+                      {r.uplift != null && r.is_modeled ? fmtSigned(r.uplift * 100, 1) : "—"}
                     </td>
                     <td className="py-2.5 text-right">
                       {r.sat_ref != null ? fmtPct(r.sat_ref, 0) : "—"}
