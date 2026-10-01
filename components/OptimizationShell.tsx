@@ -244,7 +244,11 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
               <p className="text-gray-500 text-xs mb-1">Presupuesto total</p>
               <p className="text-gray-900 font-semibold">{fmtMXN(totals.budget_an)}</p>
-              <p className="text-gray-400 text-xs mt-0.5">Sin cambio de envelope</p>
+              <p className="text-gray-400 text-xs mt-0.5">
+                {totals.model_an != null && totals.model_an !== totals.budget_an
+                  ? `Canales modelados: ${fmtMXN(totals.model_an)}`
+                  : "Sin cambio de envelope"}
+              </p>
             </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
               <p className="text-gray-500 text-xs mb-1">Cotizaciones referencia</p>
@@ -287,7 +291,7 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
               <p className="text-gray-400 text-xs mt-0.5">Ref: {fmtMXNM(totals.ref_prima)}</p>
             </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-gray-500 text-xs mb-1">ROAS (prima / peso inv.)</p>
+              <p className="text-gray-500 text-xs mb-1">ROAS (prima / inv. modelada)</p>
               <div className="flex items-center gap-3">
                 <div>
                   <p className="text-gray-400 text-xs">Ref</p>
