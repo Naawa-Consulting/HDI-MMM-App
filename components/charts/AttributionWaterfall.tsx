@@ -47,11 +47,14 @@ interface WaterfallRow {
   isTotal: boolean;
 }
 
+type WaterfallBlock = AttributionBlock & { cot?: number };
+
 function buildWaterfallData(
-  blocks: AttributionBlock[],
+  blocks: WaterfallBlock[],
   totalCot: number | null
 ): WaterfallRow[] {
   const map = Object.fromEntries(blocks.map((b) => [b.block, b.pct]));
+  const cotMap = Object.fromEntries(blocks.map((b) => [b.block, b.cot]));
   let running = 0;
 
   const rows: WaterfallRow[] = BLOCK_ORDER.filter((k) => k in map).map((k) => {
@@ -64,7 +67,9 @@ function buildWaterfallData(
       base:       pct >= 0 ? start : start + pct,
       value:      Math.abs(pct),
       pct,
-      cot:        totalCot != null ? Math.round((pct / 100) * totalCot) : null,
+      cot:        cotMap[k] != null
+        ? Math.round(cotMap[k] as number)
+        : totalCot != null ? Math.round((pct / 100) * totalCot) : null,
       color:      BLOCK_COLORS[k] ?? "#9ca3af",
       isNegative: pct < 0,
       isTotal:    false,
@@ -156,7 +161,7 @@ function BarPctLabel(props: any) {
 // ─── component ───────────────────────────────────────────────────────────────
 
 interface Props {
-  blocks: AttributionBlock[];
+  blocks: WaterfallBlock[];
   totalCot?: number | null;
 }
 

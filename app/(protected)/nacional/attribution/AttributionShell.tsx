@@ -69,6 +69,7 @@ async function exportExcel(
   allSelected: boolean,
   hero: { attrib: number | null; cotMkt: number; polizas: number; prima: number; roas: number | null },
   activeMonths: number[] = [],
+  totalCot: number = 0,
 ) {
   const { utils, writeFile } = await import("xlsx");
 
@@ -104,20 +105,14 @@ async function exportExcel(
     marketing: "Marketing",
     estacionalidad: "Estacionalidad",
   };
-  const monthRowsForExport = activeMonths.length > 0
-    ? monthly.filter((m) => activeYears.includes(m.year) && activeMonths.includes(m.month))
-    : [];
-  const totalCot = monthRowsForExport.length > 0
-    ? monthlyTotalCot(monthRowsForExport)
-    : roi.reduce((s, r) => s + (r.cot_obs ?? 0), 0);
   const decompRows = [
     ["Bloque", "Contribucion (%)", "Cotizaciones (estimado)"],
-    ...blocks
+    ...[...(blocks as CompBlock[])]
       .sort((a, b) => b.pct - a.pct)
       .map((b) => [
         blockLabels[b.block] ?? b.block,
         b.pct / 100,
-        Math.round((b.pct / 100) * totalCot),
+        Math.round(b.cot ?? (b.pct / 100) * totalCot),
       ]),
     [],
     ["Total", 1, Math.round(totalCot)],
@@ -179,28 +174,39 @@ async function exportExcel(
 // (reportado por el usuario 2026-09-24). Se derivan de monthly_scenarios --
 // misma fuente que ya usa la Sección 3 -- para que las 3 secciones cuadren.
 
-function monthlyBlocksFromRows(rows: MonthlyScenario[]): AttributionBlock[] {
-  const base    = rows.reduce((s, m) => s + (m.base ?? 0), 0);
-  const agentes = rows.reduce((s, m) => s + (m.agentes ?? 0), 0);
-  const estac   = rows.reduce((s, m) => s + (m.estac ?? 0), 0);
-  const mkt     = rows.reduce((s, m) => s + (m.mkt_act ?? 0), 0);
-  const denom = base + agentes + estac + mkt;
-  if (denom <= 0) return [];
-  const pct = (v: number) => (v / denom) * 100;
-  const out: { block: string; pct: number }[] = [
-    { block: "mercado_tendencia", pct: pct(base) },
-    { block: "estacionalidad",    pct: pct(estac) },
-    { block: "marketing",         pct: pct(mkt) },
-  ];
-  if (Math.abs(agentes) > 0.001) out.push({ block: "agentes", pct: pct(agentes) });
-  return out.map((b, i) => ({ id: `month-${i}`, run_id: "", ...b }));
+type CompBlock = AttributionBlock & { cot?: number };
+
+// Total de cotizaciones del mes: observado; si es forecast, suma de componentes
+// con marketing plan (mismo criterio que aggregateMonthlyAttribution).
+function monthlyTotalCot(rows: MonthlyScenario[]): number {
+  return rows.reduce((s, m) => {
+    const mkt = m.obs == null ? m.mkt_plan : m.mkt_act;
+    return s + (m.obs ?? ((m.base ?? 0) + (m.estac ?? 0) + (m.agentes ?? 0) + (mkt ?? 0)));
+  }, 0);
 }
 
-function monthlyTotalCot(rows: MonthlyScenario[]): number {
-  return rows.reduce(
-    (s, m) => s + (m.obs ?? ((m.base ?? 0) + (m.agentes ?? 0) + (m.estac ?? 0) + (m.mkt_act ?? 0))),
-    0
-  );
+// Composición en cotizaciones ABSOLUTAS, aditiva y anclada al card de marketing:
+// marketing = mktCot (mismo valor que el card "Cotizaciones atribuidas a
+// marketing"); el resto (total - marketing) se reparte entre baseline,
+// estacionalidad y agentes según `weights` (residuo del modelo absorbido
+// proporcionalmente). Así el hover cuadra con los cards y suma al total.
+function compositionBlocks(
+  totalCot: number,
+  mktCot: number,
+  weights: Record<string, number>,
+): CompBlock[] {
+  if (!(totalCot > 0)) return [];
+  const rest = totalCot - mktCot;
+  const keys = ["mercado_tendencia", "estacionalidad", "agentes"];
+  const wSum = keys.reduce((s, k) => s + Math.max(weights[k] ?? 0, 0), 0);
+  const out: CompBlock[] = keys
+    .filter((k) => k !== "agentes" || Math.abs(weights.agentes ?? 0) > 0.001)
+    .map((k) => {
+      const cot = wSum > 0 ? (rest * Math.max(weights[k] ?? 0, 0)) / wSum : 0;
+      return { block: k, cot, pct: (cot / totalCot) * 100 } as CompBlock;
+    });
+  out.push({ block: "marketing", cot: mktCot, pct: (mktCot / totalCot) * 100 } as CompBlock);
+  return out.map((b, i) => ({ ...b, id: `comp-${i}`, run_id: "" }));
 }
 
 // Fila sintética para reusar AttributionYearChart/RoiTable (grano año) con
@@ -438,18 +444,27 @@ export function AttributionShell({ run, blocks, roi, monthly, channelMonthly = [
     ? `${activeMonths.map((m) => MONTH_ABBR[m - 1]).join("/")} ${activeYears[0]}`
     : "periodo seleccionado";
 
-  // Total cotizaciones for full model period (waterfall is always full-period,
-  // salvo que haya un mes activo -- ver activeBlocks/activeTotalCot abajo)
+  // Total de cotizaciones del periodo seleccionado (años o meses activos)
   const totalCot = useMemo(
-    () => roi.reduce((s, r) => s + (r.cot_obs ?? 0), 0),
-    [roi]
+    () => filteredRoi.reduce((s, r) => s + (r.cot_obs ?? 0), 0),
+    [filteredRoi]
   );
 
-  // Sección 1 (waterfall) y Sección 2 (evolución por año) -- reaccionan al
-  // mes igual que el hero, en vez de quedarse siempre en el período completo
-  // / el año sin más (reportado por el usuario 2026-09-24).
-  const activeBlocks    = monthKpis ? monthlyBlocksFromRows(monthRows) : blocks;
-  const activeTotalCot  = monthKpis ? monthlyTotalCot(monthRows) : totalCot;
+  // Sección 1 (waterfall): cotizaciones absolutas ancladas al card de marketing
+  // (cotMkt) y al total del periodo seleccionado. Los pesos de baseline /
+  // estacionalidad / agentes salen de monthly_scenarios (meses observados) y,
+  // si no hay, de attribution_blocks del run.
+  const activeTotalCot = monthKpis ? monthlyTotalCot(monthRows) : totalCot;
+  const weightRows = monthKpis
+    ? monthRows
+    : monthly.filter((m) => activeYears.includes(m.year) && m.obs != null);
+  const sumOf = (k: "base" | "estac" | "agentes") =>
+    weightRows.reduce((s, m) => s + (m[k] ?? 0), 0);
+  const blockPct = (k: string) => blocks.find((b) => b.block === k)?.pct ?? 0;
+  const weights: Record<string, number> = weightRows.length > 0
+    ? { mercado_tendencia: sumOf("base"), estacionalidad: sumOf("estac"), agentes: sumOf("agentes") }
+    : { mercado_tendencia: blockPct("mercado_tendencia"), estacionalidad: blockPct("estacionalidad"), agentes: blockPct("agentes") };
+  const activeBlocks = compositionBlocks(activeTotalCot, cotMkt, weights);
   const sectionTwoRoi   = monthKpis
     ? [monthlyRoiRow(
         activeTotalCot, monthKpis, monthInv > 0 ? monthInv : null, monthRoas,
@@ -506,7 +521,7 @@ export function AttributionShell({ run, blocks, roi, monthly, channelMonthly = [
             onClick={() =>
               exportExcel(scope, activeBlocks, roi, monthly, activeYears, allSelected, {
                 attrib, cotMkt, polizas, prima, roas,
-              }, activeMonths)
+              }, activeMonths, activeTotalCot)
             }
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
