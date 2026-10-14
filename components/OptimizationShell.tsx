@@ -4,7 +4,9 @@ import { useRef } from "react";
 import { OptimizationWaterfall } from "@/components/charts/OptimizationWaterfall";
 import { OptimizationMixDonut } from "@/components/charts/OptimizationMixDonut";
 import { OptimizationYearSelector } from "@/components/OptimizationYearSelector";
-import { fmtMXN, fmtMXNM, fmtNum, fmtPct, fmtRoas } from "@/lib/utils";
+import { RoasValue } from "@/components/RoasValue";
+import { marginInfoForYear } from "@/lib/margin";
+import { fmtMXN, fmtMXNM, fmtNum, fmtPct } from "@/lib/utils";
 import type { OptimizationRun, OptimizationTotal } from "@/lib/types";
 
 // ─── PDF export ───────────────────────────────────────────────────────────────
@@ -88,9 +90,15 @@ async function exportExcel(
         : null,
     ],
     [
-      "ROAS (prima / peso inv.)",
+      "ROAS ajustado por margen (prima × margen / peso inv.)",
       totals?.ref_roas ?? null,
       totals?.opt_roas ?? null,
+      null,
+    ],
+    [
+      "Margen aplicado (%)",
+      marginInfoForYear(year).pct / 100,
+      marginInfoForYear(year).pct / 100,
       null,
     ],
   ];
@@ -294,16 +302,20 @@ export function OptimizationShell({ scope, year, runs, totals }: Props) {
               <p className="text-gray-400 text-xs mt-0.5">Ref: {fmtMXNM(totals.ref_prima)}</p>
             </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-gray-500 text-xs mb-1">ROAS (prima / inv. modelada)</p>
+              <p className="text-gray-500 text-xs mb-1">ROAS ajustado por margen (inv. modelada)</p>
               <div className="flex items-center gap-3">
                 <div>
                   <p className="text-gray-400 text-xs">Ref</p>
-                  <p className="text-gray-700 font-semibold">{fmtRoas(totals.ref_roas)}</p>
+                  <p className="text-gray-700 font-semibold">
+                    <RoasValue value={totals.ref_roas} margin={marginInfoForYear(year)} />
+                  </p>
                 </div>
                 <span className="text-gray-300 text-lg">&#8594;</span>
                 <div>
                   <p className="text-gray-400 text-xs">Opt</p>
-                  <p className="text-[#006729] font-semibold">{fmtRoas(totals.opt_roas)}</p>
+                  <p className="text-[#006729] font-semibold">
+                    <RoasValue value={totals.opt_roas} margin={marginInfoForYear(year)} />
+                  </p>
                 </div>
               </div>
             </div>

@@ -95,7 +95,7 @@ async function exportExcel(
   utils.book_append_sheet(wb, utils.aoa_to_sheet(atribRows), "Atribucion");
 
   // ── Hoja 3: ROI por año ───────────────────────────────────────────────────
-  const roiHeader = ["Año", "Parcial", "Cotiz Obs", "Cotiz Mkt", "Atrib (%)", "Inversion (MXN)", "ROAS", "Tasa Conversion", "Prima Promedio"];
+  const roiHeader = ["Año", "Parcial", "Cotiz Obs", "Cotiz Mkt", "Atrib (%)", "Inversion (MXN)", "ROAS ajustado por margen", "Tasa Conversion", "Prima Promedio"];
   // close_rate se guarda en roi_by_year como fracción (0.1477), no como 0-100
   // -- verificado directo en Supabase (Nacional y CDMX). NO dividir entre 100
   // (bug real encontrado 2026-09-24: mostraba "Tasa Conversion" 100x menor,
@@ -128,7 +128,7 @@ async function exportExcel(
   utils.book_append_sheet(wb, utils.aoa_to_sheet(roiRows), "ROI por Año");
 
   // ── Hoja 4: Canales ───────────────────────────────────────────────────────
-  const chHeader = ["Canal", "Modelado", "Inversion (MXN)", "Share Inv (%)", "Contrib Cotiz", "Share Contrib (%)", "ROAS", "Saturacion (%)"];
+  const chHeader = ["Canal", "Modelado", "Inversion (MXN)", "Share Inv (%)", "Contrib Cotiz", "Share Contrib (%)", "ROAS ajustado por margen", "Saturacion (%)"];
   const chRowsNal: unknown[][] = channelsNacional.map((c) => [
     c.canal, c.is_modeled ? "Si" : "No",
     c.inv, c.share_inv != null ? c.share_inv / 100 : null,

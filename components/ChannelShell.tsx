@@ -3,7 +3,9 @@
 import { useState, useMemo, useRef } from "react";
 import { ChannelBarChart } from "@/components/charts/ChannelBarChart";
 import { MonthSelector } from "@/components/MonthSelector";
-import { fmtPct, fmtMXN, fmtRoas, fmtNum } from "@/lib/utils";
+import { RoasValue } from "@/components/RoasValue";
+import { marginFrac, marginInfoForYear, combineMargins, CHANNELS_SNAPSHOT_YEAR } from "@/lib/margin";
+import { fmtPct, fmtMXN, fmtNum } from "@/lib/utils";
 import type { Channel, RoiByYear, HeatmapData, ChannelMonthly, MonthlyScenario } from "@/lib/types";
 
 const MONTH_ABBR = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -69,7 +71,7 @@ async function exportExcel(
     [],
     [
       "Canal", "Inversion (MXN)", "Share de Inversion (%)", "Share de Contribucion (%)",
-      "Contribucion Total (%)", "Cotizaciones atribuidas", "ROAS (x)", "CPA (MXN/cotiz)", "Saturacion (%)",
+      "Contribucion Total (%)", "Cotizaciones atribuidas", "ROAS ajustado por margen (x)", "Margen aplicado (%)", "CPA (MXN/cotiz)", "Saturacion (%)",
     ],
     ...modeled.map((c) => [
       c.canal,
@@ -79,6 +81,7 @@ async function exportExcel(
       c.contrib_pct != null ? c.contrib_pct / 100 : null,
       c.contrib_cot != null ? Math.round(c.contrib_cot) : null,
       c.roas,
+      c.margin != null ? c.margin.pct / 100 : null,
       c.cpa_cot,
       c.sat_op != null ? c.sat_op / 100 : null,
     ]),
@@ -89,7 +92,7 @@ async function exportExcel(
   // ── Hoja 2: Heatmap canal × año ───────────────────────────────────────────
   if (heatmap && heatmap.length > 0) {
     const heatRows = [
-      ["Canal", "Año", "Share de Contribucion (%)", "ROAS (x)", "Inversion (MXN)"],
+      ["Canal", "Año", "Share de Contribucion (%)", "ROAS ajustado por margen (x)", "Margen aplicado (%)", "Inversion (MXN)"],
       ...heatmap
         .sort((a, b) => a.canal.localeCompare(b.canal) || a.year - b.year)
         .map((h) => [
@@ -97,6 +100,7 @@ async function exportExcel(
           h.year,
           h.contrib_pct != null ? h.contrib_pct / 100 : null,
           h.roim,
+          marginInfoForYear(h.year).pct / 100,
           h.inv,
         ]),
     ];
@@ -144,18 +148,10 @@ function deriveChannelMetrics(
   if (!heatmap.length) return channels;
 
   const roiMap = new Map(roi.map((r) => [r.year, r]));
-  const activeRoi = roi.filter((r) => activeYears.includes(r.year));
 
-  // Weighted-average econ params over selected years (weights = cot_obs)
-  const totalObs = activeRoi.reduce((s, r) => s + (r.cot_obs ?? 0), 0);
-  const avgClose =
-    totalObs > 0
-      ? activeRoi.reduce((s, r) => s + (r.close_rate ?? 0) * (r.cot_obs ?? 0), 0) / totalObs
-      : 0;
-  const avgPrima =
-    totalObs > 0
-      ? activeRoi.reduce((s, r) => s + (r.prima_avg ?? 0) * (r.cot_obs ?? 0), 0) / totalObs
-      : 0;
+  // ROAS = prima atribuida × margen / inversión. La prima se calcula AÑO POR
+  // AÑO (cot × cierre × prima del año) y se ajusta con el margen de ese año;
+  // antes se usaba un cierre/prima promedio de los años seleccionados.
 
   // Aggregate heatmap for selected years, per canal.
   // BUG CORREGIDO 2026-09-24: un canal con contrib_pct=null en un año dado
@@ -167,21 +163,30 @@ function deriveChannelMetrics(
   // `obsKnown`/`cotKnown` solo acumulan años donde el canal tiene dato real;
   // `contrib_pct` sale null solo si NINGÚN año seleccionado tiene dato real
   // para ese canal.
-  type Acc = { cot: number; obsKnown: number; inv: number; satSum: number; satN: number };
+  type Acc = {
+    cot: number; obsKnown: number; inv: number; satSum: number; satN: number;
+    primaAdjByYear: Record<number, number>;   // prima atribuida × margen, por año
+  };
   const agg: Record<string, Acc> = {};
 
   for (const h of heatmap) {
     if (!activeYears.includes(h.year)) continue;
     const r   = roiMap.get(h.year);
     const obs = r?.cot_obs ?? 0;
-    if (!agg[h.canal]) agg[h.canal] = { cot: 0, obsKnown: 0, inv: 0, satSum: 0, satN: 0 };
+    if (!agg[h.canal]) agg[h.canal] = { cot: 0, obsKnown: 0, inv: 0, satSum: 0, satN: 0, primaAdjByYear: {} };
     if (h.contrib_pct != null) {
       // heatmap_data.contrib_pct = reparto del aporte de MARKETING (suma 100
       // por año), no % de cotizaciones totales: se aplica sobre mkt_cot del
       // año (igual que Atribución), no sobre cot_obs. Antes multiplicaba por
       // obs y sobre-estimaba las cotizaciones por canal.
-      agg[h.canal].cot += (h.contrib_pct / 100) * (r?.mkt_cot ?? 0);
+      const cotYear = (h.contrib_pct / 100) * (r?.mkt_cot ?? 0);
+      agg[h.canal].cot += cotYear;
       agg[h.canal].obsKnown += obs;
+      if (r?.close_rate != null && r?.prima_avg != null) {
+        agg[h.canal].primaAdjByYear[h.year] =
+          (agg[h.canal].primaAdjByYear[h.year] ?? 0) +
+          cotYear * r.close_rate * r.prima_avg * marginFrac(h.year);
+      }
     }
     agg[h.canal].inv += h.inv ?? 0;
     // Accumulate sat_op weighted by active weeks (proxy: cot > 0)
@@ -211,10 +216,10 @@ function deriveChannelMetrics(
     // arriba, mismo criterio aplicado aquí.
     const share_contrib =
       !c.is_modeled ? null : !hasData ? null : totalModeledCot > 0 ? cot / totalModeledCot * 100 : 0;
-    const roas =
-      inv > 0 && cot > 0 && avgClose > 0 && avgPrima > 0
-        ? (cot * avgClose * avgPrima) / inv
-        : null;
+    const adjParts = Object.entries(a.primaAdjByYear).map(([y, adjusted]) => ({ year: Number(y), adjusted }));
+    const primaAdj = adjParts.reduce((s, p) => s + p.adjusted, 0);
+    const roas = inv > 0 && cot > 0 && primaAdj > 0 ? primaAdj / inv : null;
+    const margin = roas != null ? combineMargins(adjParts) : null;
     // Use average sat_op across selected years if per-year data available,
     // otherwise fall back to the full-period value from channels table.
     const sat_op = a.satN > 0 ? Math.round(a.satSum / a.satN * 10) / 10 : c.sat_op;
@@ -227,6 +232,7 @@ function deriveChannelMetrics(
       share_inv,
       share_contrib,
       roas,
+      margin,
       sat_op,
     };
   });
@@ -286,10 +292,13 @@ function deriveMonthlyChannelMetrics(
     const share_inv     = inv != null && inv > 0 && totalInv > 0 ? (inv / totalInv) * 100 : null;
     const roas =
       inv != null && inv > 0 && cot != null && cot > 0 && close != null && prima != null
-        ? (cot * close * prima) / inv
+        ? (cot * close * prima * marginFrac(year)) / inv   // ROAS ajustado por margen
         : null;
 
-    return { ...c, contrib_cot: cot, contrib_pct, inv, share_inv, share_contrib, roas };
+    return {
+      ...c, contrib_cot: cot, contrib_pct, inv, share_inv, share_contrib, roas,
+      margin: roas != null ? marginInfoForYear(year) : null,
+    };
   });
 }
 
@@ -349,7 +358,9 @@ function HeatmapGrid({ data }: { data: HeatmapData[] }) {
                       style={{ backgroundColor: bg }}
                     >
                       <p className={`font-semibold ${textMain}`}>
-                        {cell?.roim != null && cell.roim > 0 ? fmtRoas(cell.roim) : "—"}
+                        {cell?.roim != null && cell.roim > 0 ? (
+                          <RoasValue value={cell.roim} margin={marginInfoForYear(year)} />
+                        ) : "—"}
                       </p>
                       <p className={`text-[10px] ${textSub}`}>
                         {cell?.contrib_pct != null && cell.contrib_pct > 0
@@ -626,8 +637,13 @@ export function ChannelShell({ scope, channels, roi, heatmap, channelMonthly = [
                   <p className="text-gray-900 font-medium">{fmtMXN(c.inv)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-400">ROAS</p>
-                  <p className="text-gray-900 font-medium">{fmtRoas(c.roas)}</p>
+                  <p className="text-gray-400">ROAS ajustado</p>
+                  <p className="text-gray-900 font-medium">
+                    <RoasValue
+                      value={c.roas}
+                      margin={c.margin ?? marginInfoForYear(CHANNELS_SNAPSHOT_YEAR)}
+                    />
+                  </p>
                 </div>
                 <div>
                   <p className="text-gray-400">Share de Inversion</p>
@@ -681,7 +697,7 @@ export function ChannelShell({ scope, channels, roi, heatmap, channelMonthly = [
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm mb-6">
           <h3 className="text-gray-900 font-semibold mb-1">Heatmap canal × año</h3>
           <p className="text-gray-500 text-xs mb-4">
-            Contribucion (%) por color · ROAS como valor · años seleccionados
+            Contribucion (%) por color · ROAS ajustado por margen como valor · años seleccionados
           </p>
           <HeatmapGrid
             data={filteredHeatmap.length > 0 ? filteredHeatmap : heatmap}

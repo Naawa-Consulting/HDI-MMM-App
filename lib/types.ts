@@ -36,7 +36,10 @@ export interface AttributionBlock {
   pct: number;
 }
 
+import type { MarginInfo } from "@/lib/margin";
+
 export interface Channel {
+  margin?: MarginInfo | null;   // solo en cliente: margen efectivo del ROAS mostrado
   id: string;
   run_id: string;
   canal: string;
@@ -46,7 +49,7 @@ export interface Channel {
   contrib_pct: number | null;
   pol_atrib: number | null;
   prima_atrib: number | null;
-  roas: number | null;
+  roas: number | null;   // ya ajustado por margen (lib/margin.ts, aplicado en lib/queries)
   cpa_cot: number | null;
   share_inv: number | null;
   share_contrib: number | null;

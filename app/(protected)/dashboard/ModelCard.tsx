@@ -1,6 +1,8 @@
 "use client";
 
-import { fmtPct, fmtNum, fmtRoas, CHART_COLORS, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
+import { RoasValue } from "@/components/RoasValue";
+import { marginFrac, marginInfoForYear, combineMargins } from "@/lib/margin";
+import { fmtPct, fmtNum, CHART_COLORS, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
@@ -173,8 +175,16 @@ export function ModelCard({
     : 0;
   const monthPrima = monthKpis?.prima ?? null;
   const monthRoas =
-    monthActive && monthInv > 0 && monthPrima != null ? monthPrima / monthInv : null;
+    monthActive && monthInv > 0 && monthPrima != null
+      ? (monthPrima * marginFrac(selectedYears[0])) / monthInv   // ROAS ajustado por margen
+      : null;
   const roas = monthActive ? monthRoas : rawRoas;
+  // Hover: margen aplicado según filtros (mes = margen de su año; varios años = ponderado por prima).
+  const roasMargin = monthActive
+    ? marginInfoForYear(selectedYears[0])
+    : combineMargins(
+        selectedRows.map((r) => ({ year: r.year, adjusted: (r.roas ?? 0) * (r.inv ?? 0) })),
+      );
   const basePct = attrib != null ? 100 - attrib : null;
 
   // chipYear = the year the user last clicked; drives channel chips.
@@ -275,14 +285,14 @@ export function ModelCard({
           <div className="bg-white px-4 py-2.5 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">
-                ROAS
+                ROAS ajustado
               </p>
               <p className="text-xl font-bold text-gray-900">
-                {roas != null ? fmtRoas(roas) : "—"}
+                <RoasValue value={roas} margin={roasMargin} />
               </p>
             </div>
             <span className="text-xs text-gray-400">
-              {monthActive ? "canales modelados" : "por peso invertido"}
+              {monthActive ? "canales modelados" : "margen por peso invertido"}
             </span>
           </div>
         </div>

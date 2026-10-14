@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { RoiByYear } from "@/lib/types";
 import { fmtNum, fmtMXN, fmtRoas } from "@/lib/utils";
+import { marginInfoForYear } from "@/lib/margin";
 
 // ─── tooltip ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,11 @@ function YearTooltip({
           <span className="font-medium" style={{ color: "#00A3A8" }}>
             {fmtRoas(r.roas)}
           </span>
+        </p>
+      )}
+      {r.roas != null && r.year > 0 && (
+        <p className="text-gray-500 text-[11px]">
+          Margen aplicado: {marginInfoForYear(r.year).pct.toFixed(2)}%
         </p>
       )}
     </div>
@@ -124,7 +130,7 @@ export function AttributionYearChart({ roi }: Props) {
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => `${v.toFixed(0)}x`}
-                domain={[0, (max: number) => Math.ceil(max / 10) * 10 + 20]}
+                domain={[0, (max: number) => Math.ceil(max) + 1]}
               />
             )}
             <Tooltip content={<YearTooltip />} cursor={{ fill: "#f9fafb" }} />
@@ -163,7 +169,7 @@ export function AttributionYearChart({ roi }: Props) {
             className="text-[10px] shrink-0 select-none"
             style={{ writingMode: "vertical-lr", textAlign: "center", color: "#00A3A8" }}
           >
-            ROAS
+            ROAS ajustado
           </span>
         )}
       </div>
@@ -181,7 +187,7 @@ export function AttributionYearChart({ roi }: Props) {
               <span className="inline-block w-2 h-2 rounded-full bg-[#00A3A8]" />
               <span className="inline-block w-4 h-0.5 bg-[#00A3A8]" />
             </span>
-            ROAS
+            ROAS ajustado por margen
           </span>
         )}
       </div>

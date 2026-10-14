@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { applyMargin } from "@/lib/margin";
 import type { OptimizationRun, OptimizationTotal, SaturationCurve, EconParams } from "@/lib/types";
 
 export async function getOptimizationRuns(
@@ -28,7 +29,14 @@ export async function getOptimizationTotals(
     .eq("opt_year", year)
     .single();
 
-  return data ?? null;
+  if (!data) return null;
+  const t = data as OptimizationTotal;
+  // ref/opt_roas guardados = brutos; se ajustan con el margen del año de optimización.
+  return {
+    ...t,
+    ref_roas: applyMargin(t.ref_roas, t.opt_year),
+    opt_roas: applyMargin(t.opt_roas, t.opt_year),
+  };
 }
 
 export async function getSaturationCurves(runId: string): Promise<SaturationCurve[]> {

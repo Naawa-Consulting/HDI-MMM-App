@@ -5,7 +5,9 @@ import { AttributionWaterfall } from "@/components/charts/AttributionWaterfall";
 import { AttributionYearChart } from "@/components/charts/AttributionYearChart";
 import { AttributionMonthly } from "@/components/charts/AttributionMonthly";
 import { MonthSelector } from "@/components/MonthSelector";
-import { fmtPct, fmtNum, fmtMXN, fmtMXNM, fmtRoas, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
+import { RoasValue } from "@/components/RoasValue";
+import { marginFrac, marginInfoForYear, combineMargins } from "@/lib/margin";
+import { fmtPct, fmtNum, fmtMXN, fmtMXNM, aggregateMonthlyAttribution, monthlyModeledInvestment } from "@/lib/utils";
 import type {
   ModelRun,
   AttributionBlock,
@@ -92,7 +94,7 @@ async function exportExcel(
     ["Cotizaciones atribuidas a marketing", Math.round(hero.cotMkt)],
     ["Polizas atribuidas a marketing", Math.round(hero.polizas)],
     ["Prima generada por marketing (MXN)", Math.round(hero.prima)],
-    ["ROAS promedio ponderado (x)", hero.roas],
+    ["ROAS ajustado por margen, promedio ponderado (x)", hero.roas],
   ];
   const wsKpi = utils.aoa_to_sheet(kpiRows);
   wsKpi["E5"] = { z: "0.0%" };
@@ -123,7 +125,7 @@ async function exportExcel(
   // ── Hoja 3: Evolucion por año ─────────────────────────────────────────────
   const filteredRoi = allSelected ? roi : roi.filter((r) => activeYears.includes(r.year));
   const yearRows = [
-    ["Año", "Cotizaciones atribuidas", "Atribucion (%)", "Inversion (MXN)", "ROAS (x)", "Polizas", "Prima generada (MXN)", "Parcial"],
+    ["Año", "Cotizaciones atribuidas", "Atribucion (%)", "Inversion (MXN)", "ROAS ajustado por margen (x)", "Margen aplicado (%)", "Polizas", "Prima generada (MXN)", "Parcial"],
     ...filteredRoi.sort((a, b) => a.year - b.year).map((r) => {
       const pol = r.mkt_cot != null && r.close_rate != null ? r.mkt_cot * r.close_rate : null;
       const pri = pol != null && r.prima_avg != null ? pol * r.prima_avg : null;
@@ -133,6 +135,7 @@ async function exportExcel(
         r.attrib_pct != null ? r.attrib_pct / 100 : null,
         r.inv,
         r.roas,
+        r.year > 0 ? marginInfoForYear(r.year).pct / 100 : null,
         pol != null ? Math.round(pol) : null,
         pri != null ? Math.round(pri) : null,
         r.is_partial ? "Si" : "No",
@@ -276,7 +279,7 @@ function RoiTable({ roi }: { roi: RoiByYear[] }) {
             <th className="text-right pb-2 font-medium">Cotizaciones</th>
             <th className="text-right pb-2 font-medium">Atribución</th>
             <th className="text-right pb-2 font-medium">Inversión</th>
-            <th className="text-right pb-2 font-medium">ROAS</th>
+            <th className="text-right pb-2 font-medium">ROAS ajustado</th>
             <th className="text-right pb-2 font-medium">Pólizas</th>
             <th className="text-right pb-2 font-medium">Prima generada</th>
           </tr>
@@ -307,7 +310,12 @@ function RoiTable({ roi }: { roi: RoiByYear[] }) {
                   {fmtPct(r.attrib_pct, 1)}
                 </td>
                 <td className="py-2 text-right">{fmtMXN(r.inv)}</td>
-                <td className="py-2 text-right">{fmtRoas(r.roas)}</td>
+                <td className="py-2 text-right">
+                  <RoasValue
+                    value={r.roas}
+                    margin={r.year > 0 ? marginInfoForYear(r.year) : null}
+                  />
+                </td>
                 <td className="py-2 text-right">
                   {polizas != null ? fmtNum(polizas, 0) : "—"}
                 </td>
@@ -431,7 +439,16 @@ export function AttributionShell({ run, blocks, roi, monthly, channelMonthly = [
     ? monthlyModeledInvestment(channelMonthly, activeYears[0], activeMonths)
     : 0;
   const monthRoas =
-    monthKpis && monthInv > 0 && monthKpis.prima != null ? monthKpis.prima / monthInv : null;
+    monthKpis && monthInv > 0 && monthKpis.prima != null
+      ? (monthKpis.prima * marginFrac(activeYears[0])) / monthInv   // ROAS ajustado por margen
+      : null;
+  // Hover del ROAS: margen aplicado según filtros (mes = margen de su año;
+  // varios años = margen ponderado por prima).
+  const roasMargin = monthKpis
+    ? marginInfoForYear(activeYears[0])
+    : combineMargins(
+        filteredRoi.map((r) => ({ year: r.year, adjusted: (r.roas ?? 0) * (r.inv ?? 0) })),
+      );
 
   const attrib  = monthKpis ? monthKpis.attribPct : annualAttrib;
   const cotMkt  = monthKpis ? monthKpis.mktSum     : annualCotMkt;
@@ -652,13 +669,13 @@ export function AttributionShell({ run, blocks, roi, monthly, channelMonthly = [
           </div>
           <div className="bg-white px-4 py-4 md:rounded-br-2xl">
             <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">
-              ROAS promedio ponderado
+              ROAS ajustado por margen
             </p>
             <p className="text-2xl font-bold text-gray-900 leading-none">
-              {roas != null ? fmtRoas(roas) : "—"}
+              <RoasValue value={roas} margin={roasMargin} />
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              {monthKpis ? "canales modelados" : "por cada peso invertido"}
+              {monthKpis ? "canales modelados" : "margen por cada peso invertido"}
             </p>
           </div>
         </div>
