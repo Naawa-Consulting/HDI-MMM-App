@@ -89,7 +89,7 @@ export function DashboardCharts({
   selectedYears,
   selectedMonths,
 }: DashboardChartsProps) {
-  const [scope, setScope] = useState<"nacional" | "cdmx">("cdmx");
+  const [scope, setScope] = useState<"nacional" | "cdmx">("nacional");
 
   const monthly = scope === "nacional" ? monthlyNacional : monthlyCdmx;
   const data = buildChartData(monthly, selectedYears, selectedMonths);
