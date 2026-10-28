@@ -35,7 +35,7 @@ export default async function ModelHealthPage() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="mb-6">
         <h1 className="text-gray-900 text-2xl font-semibold">Salud del Modelo</h1>
-        <p className="text-gray-500 text-sm mt-1">Historial de versiones publicadas y tendencia de metricas</p>
+        <p className="text-gray-500 text-sm mt-1">Versiones que han estado en producción y tendencia de métricas</p>
       </div>
 
       {/* Actual vs Model fit charts */}
@@ -100,7 +100,12 @@ export default async function ModelHealthPage() {
                       {r.model_scope === "nacional" ? "Nacional" : "CDMX"}
                     </span>
                   </td>
-                  <td className="py-2.5 font-mono text-xs text-gray-600">{r.model_id}</td>
+                  <td className="py-2.5 font-mono text-xs text-gray-600">
+                    {r.model_id}
+                    {r.is_published && (
+                      <span className="ml-2 font-sans text-[10px] px-1.5 py-0.5 rounded-full bg-gray-900 text-white">vigente</span>
+                    )}
+                  </td>
                   <td className="py-2.5 text-gray-600">{RUN_TYPE_LABELS[r.run_type] ?? r.run_type}</td>
                   <td className="py-2.5 text-right text-gray-600">{formatDate(r.data_through)}</td>
                   <td className="py-2.5 text-right">{r.r2 != null ? r.r2.toFixed(3) : "—"}</td>

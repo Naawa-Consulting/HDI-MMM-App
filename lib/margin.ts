@@ -5,7 +5,8 @@
 // Margen = (ingreso por prima - siniestros - reaseguro - costo de adquisición
 // [+ componente de pérdida]) / ingreso por prima, antes de gastos
 // administrativos. Fuente: Reporte Financiero HDI (Autos Residentes, todas las
-// oficinas, IFRS 17).
+// oficinas, IFRS 17), en data/raw/HDI-reporte-financiero-2023-2025.xlsx y
+// data/raw/HDI-reporte-financiero-2026-08.xlsx.
 //
 // Reglas acordadas:
 //   - Se usa ene-nov de cada año (diciembre trae ajustes de cierre de reservas).

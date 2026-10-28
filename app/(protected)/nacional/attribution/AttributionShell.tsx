@@ -201,11 +201,15 @@ function compositionBlocks(
   if (!(totalCot > 0)) return [];
   const rest = totalCot - mktCot;
   const keys = ["mercado_tendencia", "estacionalidad", "agentes"];
-  const wSum = keys.reduce((s, k) => s + Math.max(weights[k] ?? 0, 0), 0);
+  // Pesos CON signo: la estacionalidad anual es negativa (las ondas Fourier se
+  // compensan dentro del año y los festivos restan cotizaciones), y el waterfall
+  // ya pinta bloques negativos. Antes se recortaban a 0 con Math.max(w, 0), por
+  // lo que la estacionalidad salía en 0 en cualquier año (corregido 2026-10-28).
+  const wSum = keys.reduce((s, k) => s + (weights[k] ?? 0), 0);
   const out: CompBlock[] = keys
     .filter((k) => k !== "agentes" || Math.abs(weights.agentes ?? 0) > 0.001)
     .map((k) => {
-      const cot = wSum > 0 ? (rest * Math.max(weights[k] ?? 0, 0)) / wSum : 0;
+      const cot = wSum > 0 ? (rest * (weights[k] ?? 0)) / wSum : 0;
       return { block: k, cot, pct: (cot / totalCot) * 100 } as CompBlock;
     });
   out.push({ block: "marketing", cot: mktCot, pct: (mktCot / totalCot) * 100 } as CompBlock);

@@ -31,13 +31,23 @@ export async function getAllRuns(scope: ModelScope): Promise<ModelRun[]> {
 }
 
 /** All published runs for both scopes — used in /model-health. */
+// Historial de versiones para Salud del Modelo: el run vigente (is_published) y
+// los anteriores a él, por scope. Solo hay un run publicado por scope, así que
+// filtrar por is_published dejaba el historial con una sola fila y sin tendencia.
+// Los borradores posteriores al vigente (aún en QA) no se muestran.
 export async function getAllRunsBothScopes(): Promise<ModelRun[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("model_runs")
     .select("*")
-    .eq("is_published", true)
     .order("run_date", { ascending: false });
 
-  return data ?? [];
+  const runs = data ?? [];
+  const current = new Map(
+    runs.filter((r) => r.is_published).map((r) => [r.model_scope, r.run_date] as const)
+  );
+  return runs.filter((r) => {
+    const cur = current.get(r.model_scope);
+    return cur != null && r.run_date <= cur;
+  });
 }
