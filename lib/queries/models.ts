@@ -42,7 +42,7 @@ export async function getAllRunsBothScopes(): Promise<ModelRun[]> {
     .select("*")
     .order("run_date", { ascending: false });
 
-  const runs = data ?? [];
+  const runs = (data ?? []) as ModelRun[];
   const current = new Map(
     runs.filter((r) => r.is_published).map((r) => [r.model_scope, r.run_date] as const)
   );
